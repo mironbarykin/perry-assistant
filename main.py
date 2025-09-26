@@ -222,16 +222,25 @@ def bike_advice(weather, wind_deg=None, route_angle=30):
 # -------------------- GOOGLE CALENDAR --------------------
 def get_calendar_service():
     creds = None
+    # Load credentials if they exist
     if os.path.exists(TOKEN_PICKLE):
         with open(TOKEN_PICKLE, "rb") as token:
             creds = pickle.load(token)
 
+    # If no valid credentials, start OAuth flow
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
+            # Refresh the token using the refresh token (server-side, no browser)
+            try:
+                creds.refresh(Request())
+            except Exception as e:
+                logger.error(f"Failed to refresh token: {e}")
+                creds = None
+        if not creds or not creds.valid:
+            # Only do this on first login (requires browser/user interaction)
             flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
             creds = flow.run_local_server(port=0)
+        # Save the credentials (including refresh token)
         with open(TOKEN_PICKLE, "wb") as token:
             pickle.dump(creds, token)
 
