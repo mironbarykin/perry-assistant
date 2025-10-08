@@ -1,7 +1,16 @@
 import logging
-import os
-import datetime
-import traceback
+
+# Logging setup
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    handlers=[
+        logging.FileHandler("assistant.log"),
+        logging.StreamHandler()
+    ]
+)
+
+from dotenv import load_dotenv
 
 from telegram.ext import (
     ApplicationBuilder, 
@@ -10,7 +19,6 @@ from telegram.ext import (
     ConversationHandler, 
     filters
 )
-import telegram
 
 from config import TG_TOKEN
 from handlers import (

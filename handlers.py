@@ -527,10 +527,13 @@ async def weekend(update: Update, context: CallbackContext):
     sat_events = [e[1] for e in get_events_for_date(saturday) if e[2]]
     sun_events = [e[1] for e in get_events_for_date(sunday) if e[2]]
 
+    sat_events_str = '\n'.join(sat_events) if sat_events else 'No events'
+    sun_events_str = '\n'.join(sun_events) if sun_events else 'No events'
+
     msg = (
-        f"This weekend {saturday.day}/{sunday.day} basketball events:\n"
-        f"Saturday:\n{'\n'.join(sat_events) if sat_events else 'No events'}\n"
-        f"Sunday:\n{'\n'.join(sun_events) if sun_events else 'No events'}"
+        f"This weekend {saturday.day} - {sunday.day} basketball events:\n"
+        f"Saturday:\n{sat_events_str}\n"
+        f"Sunday:\n{sun_events_str}"
     )
     await update.message.reply_text(msg, parse_mode=telegram.constants.ParseMode.HTML)
 
