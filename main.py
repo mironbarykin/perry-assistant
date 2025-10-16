@@ -1,11 +1,16 @@
 import logging
+from logging.handlers import TimedRotatingFileHandler
 
 # Logging setup
+LOG_PATH = "/data/logs.log"
+file_handler = TimedRotatingFileHandler(LOG_PATH, when="midnight", encoding="utf-8")
+file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
     handlers=[
-        logging.FileHandler("assistant.log"),
+        file_handler,
         logging.StreamHandler()
     ]
 )

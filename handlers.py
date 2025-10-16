@@ -20,121 +20,6 @@ logger = logging.getLogger(__name__)
 
 SET_TIME = range(1)
 
-# -------------------- AUTH DECORATORS --------------------
-def auto_auth(func):
-    """Decorator to handle Google auth expiration and reauthorization."""
-    @wraps(func)
-    async def wrapper(update: Update, context: CallbackContext, *args, **kwargs):
-        try:
-            return await func(update, context, *args, **kwargs)
-        except Exception as e:
-            if "AUTH_REQUIRED" in str(e):
-                from google_auth_oauthlib.flow import Flow
-
-                flow = Flow.from_client_secrets_file(
-                    CREDENTIALS_FILE,
-                    scopes=SCOPES,
-                    redirect_uri="urn:ietf:wg:oauth:2.0:oob"
-                )
-                auth_url, _ = flow.authorization_url(
-                    access_type="offline",
-                    prompt="consent",
-                    include_granted_scopes="true"
-                )
-
-                context.bot_data["pending_auth"] = {
-                    "flow": flow,
-                    "update": update,
-                    "context": context,
-                    "func": func,
-                    "args": args,
-                    "kwargs": kwargs
-                }
-
-                await context.bot.send_message(
-                    chat_id=MIRON_ID,
-                    text=(
-                        f"⚠️ Google token expired while user @{update.effective_user.username} "
-                        f"was using the bot.\n\n"
-                        f"Please reauthorize the bot by clicking the link below:\n\n"
-                        f"{auth_url}\n\n"
-                        f"After logging in, send me the code you receive here."
-                    )
-                )
-
-                logger.warning(f"Authorization required — sent link to Miron for @{update.effective_user.username}")
-
-                context.application.add_handler(
-                    MessageHandler(filters.TEXT & filters.Chat(MIRON_ID), handle_auth_code),
-                    group=1
-                )
-
-                try:
-                    await update.message.reply_text("⏳ Google authorization expired. Miron is reauthorizing the bot.")
-                except Exception:
-                    pass
-
-                return
-            else:
-                raise e
-    return wrapper
-
-async def handle_auth_code(update: Update, context: CallbackContext):
-    """Handle Miron’s Google auth code and resume the original user’s command."""
-    code = update.message.text.strip()
-    pending = context.bot_data.get("pending_auth")
-
-    if not pending:
-        await update.message.reply_text("❌ No pending authorization request.")
-        return
-
-    flow = pending["flow"]
-    try:
-        flow.fetch_token(code=code)
-        creds = flow.credentials
-
-        with open(TOKEN_PICKLE, "wb") as token:
-            pickle.dump(creds, token)
-
-        await update.message.reply_text("✅ Bot successfully reauthorized. Resuming user’s request...")
-
-        func = pending["func"]
-        orig_update = pending["update"]
-        orig_context = pending["context"]
-
-        context.bot_data.pop("pending_auth", None)
-        context.application.remove_handler(handle_auth_code, group=1)
-
-        await func(orig_update, orig_context, *pending["args"], **pending["kwargs"])
-
-        try:
-            await orig_update.message.reply_text("✅ Miron reauthorized the bot. Your command has been processed.")
-        except Exception:
-            pass
-
-    except Exception as e:
-        await update.message.reply_text(f"❌ Authorization failed: {e}")
-        context.application.remove_handler(handle_auth_code, group=1)
-
-def allowed_users(func):
-    """Decorator to restrict bot usage to allowed users."""
-    @wraps(func)
-    async def wrapper(update: Update, context: CallbackContext, *args, **kwargs):
-        username = f"@{update.effective_user.username}"
-        if username not in PEOPLE:
-            await send_denied(update)
-            return
-        return await func(update, context, *args, **kwargs)
-    return wrapper
-
-async def send_denied(update: Update):
-    """Inform unauthorized users."""
-    if getattr(update, 'message', None):
-        await update.message.reply_text("You are not allowed to use this bot.")
-    elif getattr(update, 'callback_query', None):
-        await update.callback_query.answer()
-        await update.callback_query.edit_message_text("You are not allowed to use this bot.")
-
 # -------------------- WEATHER --------------------
 def get_weather(location: dict, target_dt: datetime.datetime) -> dict:
     """Fetch weather data for a location and time."""
@@ -261,28 +146,12 @@ def bike_advice(weather: dict, wind_deg=None, route_angle=30) -> str:
 
 # -------------------- GOOGLE CALENDAR --------------------
 def get_calendar_service():
-    """Get Google Calendar API service, handle token refresh."""
+    """Get Google Calendar API service (no auth logic)."""
     creds = None
-
     if os.path.exists(TOKEN_PICKLE):
         with open(TOKEN_PICKLE, "rb") as token:
             creds = pickle.load(token)
-
-    if creds and creds.valid:
-        return build("calendar", "v3", credentials=creds)
-
-    # Try refreshing token
-    if creds and creds.expired and creds.refresh_token:
-        try:
-            creds.refresh(Request())
-            with open(TOKEN_PICKLE, "wb") as token:
-                pickle.dump(creds, token)
-            return build("calendar", "v3", credentials=creds)
-        except Exception as e:
-            logging.error(f"Token refresh failed: {e}")
-
-    # No valid token → need manual reauthorization
-    raise Exception("AUTH_REQUIRED")
+    return build("calendar", "v3", credentials=creds)
 
 def get_all_calendars(service):
     """Get all calendars from the Google Calendar API."""
@@ -412,55 +281,95 @@ def schedule_notifications(app):
 async def send_daily_notification(context: ContextTypes.DEFAULT_TYPE):
     """Send daily notification to user."""
     chat_id = context.job.chat_id
-    events_text = get_day_events_text(datetime.datetime.now(datetime.UTC), "today's events")
-    await context.bot.send_message(chat_id, f"Today's events:\n{events_text}", parse_mode=telegram.constants.ParseMode.HTML)
+    try:
+        events_text = get_day_events_text(datetime.datetime.now(datetime.UTC), "today's events")
+        await context.bot.send_message(chat_id, f"Today's events:\n{events_text}", parse_mode=telegram.constants.ParseMode.HTML)
+    except Exception as e:
+        if "AUTH_REQUIRED" in str(e):
+            await send_auth_link_to_miron(context, reason="Google token expired during daily notification")
+        else:
+            await global_error_notify(None, context, e)
 
 async def send_morning_message(context: ContextTypes.DEFAULT_TYPE):
     """Send morning message to Miron."""
     chat_id = 1955285579
     today = datetime.datetime.now(ZoneInfo("Europe/Berlin"))
-    events = get_events_for_date(today)
+    try:
+        events = get_events_for_date(today)
 
-    school_events = [e for e in events if "school" in e[1].lower()]
-    school_end = max((e[0] for e in school_events if e[0]), default=None)
+        school_events = [e for e in events if "school" in e[1].lower()]
+        school_end = max((e[0] for e in school_events if e[0]), default=None)
 
-    target_home = today.replace(hour=7, minute=0, second=0, microsecond=0)
-    home_weather = get_weather(HOME, target_home)
-    school_weather = get_weather(SCHOOL, school_end) if school_end else None
+        target_home = today.replace(hour=7, minute=0, second=0, microsecond=0)
+        home_weather = get_weather(HOME, target_home)
+        school_weather = get_weather(SCHOOL, school_end) if school_end else None
 
-    home_advice = bike_advice(home_weather)
-    school_advice = bike_advice(school_weather) if school_weather else "No school today."
+        home_advice = bike_advice(home_weather)
+        school_advice = bike_advice(school_weather) if school_weather else "No school today."
 
-    gap_warning = check_school_practice_gap(events)
+        gap_warning = check_school_practice_gap(events)
 
-    msg_lines = [
-        f"☀️ Good morning, Miron! \n Here is your schedule for today:\n{get_day_events_text(today)}",
-    ]
+        msg_lines = [
+            f"☀️ Good morning, Miron! \n Here is your schedule for today:\n{get_day_events_text(today)}",
+        ]
 
-    if any("school" in event[1].lower() for event in events):    
-        if home_weather.get("temp") is not None:
-            msg_lines.append(
-                f"🏠{home_advice}"
-            )
-        else:
-            msg_lines.append(f"⁉️🏠 Weather on the way in — Weather unavailable 🚲")
-
-        if school_weather:
-            if school_weather.get("temp") is not None:
+        if any("school" in event[1].lower() for event in events):    
+            if home_weather.get("temp") is not None:
                 msg_lines.append(
-                    f"🏫{school_advice}"
+                    f"🏠{home_advice}"
                 )
             else:
-                msg_lines.append(f"⁉️🏫 Weather at school end — Weather unavailable 🚲")
+                msg_lines.append(f"⁉️🏠 Weather on the way in — Weather unavailable 🚲")
 
-        if gap_warning:
-            msg_lines.append(gap_warning)
+            if school_weather:
+                if school_weather.get("temp") is not None:
+                    msg_lines.append(
+                        f"🏫{school_advice}"
+                    )
+                else:
+                    msg_lines.append(f"⁉️🏫 Weather at school end — Weather unavailable 🚲")
 
-    msg = "\n\n".join(msg_lines)
-    await context.bot.send_message(chat_id, msg, parse_mode=telegram.constants.ParseMode.HTML)
+            if gap_warning:
+                msg_lines.append(gap_warning)
+
+        msg = "\n\n".join(msg_lines)
+        await context.bot.send_message(chat_id, msg, parse_mode=telegram.constants.ParseMode.HTML)
+    except Exception as e:
+        if "AUTH_REQUIRED" in str(e):
+            await send_auth_link_to_miron(context, reason="Google token expired during morning message")
+        else:
+            await global_error_notify(None, context, e)
+
+async def send_auth_link_to_miron(context, reason="Google token expired"):
+    """Send Google reauthorization link to Miron."""
+    from google_auth_oauthlib.flow import Flow
+    flow = Flow.from_client_secrets_file(
+        CREDENTIALS_FILE,
+        scopes=SCOPES,
+        redirect_uri="urn:ietf:wg:oauth:2.0:oob"
+    )
+    auth_url, _ = flow.authorization_url(
+        access_type="offline",
+        prompt="consent",
+        include_granted_scopes="true"
+    )
+    context.bot_data["pending_auth"] = {
+        "flow": flow,
+        "context": context,
+    }
+    await context.bot.send_message(
+        chat_id=MIRON_ID,
+        text=(
+            f"⚠️ {reason}.\n\n"
+            f"Please reauthorize the bot by clicking the link below:\n\n"
+            f"{auth_url}\n\n"
+            f"After logging in, send me the code you receive here."
+        )
+    )
+    logger.warning(f"Authorization required — sent link to Miron (job context)")
 
 # -------------------- COMMANDS --------------------
-@allowed_users
+
 async def start(update: Update, context: CallbackContext):
     """Handle /start command."""
     is_miron = update.effective_user.username == "barykinmiron"
@@ -477,15 +386,13 @@ async def start(update: Update, context: CallbackContext):
         reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     )
 
-@allowed_users
+
 async def settime(update: Update, context: CallbackContext):
     """Handle /settime command."""
     # Ask user to send the notification time
     await update.message.reply_text("Send time as HH:MM (24h). Example: 08:30")
     return SET_TIME
 
-@allowed_users
-@auto_auth
 async def handle_time_message(update: Update, context: CallbackContext):
     """Handle time message for notification setup."""
     user_id, text = update.effective_user.id, update.message.text.strip()
@@ -502,22 +409,16 @@ async def handle_time_message(update: Update, context: CallbackContext):
     await update.message.reply_text(f"Notification time set to {times[str(user_id)]}.")
     return ConversationHandler.END
 
-@allowed_users
-@auto_auth
 async def today(update: Update, context: CallbackContext):
     """Send today's events."""
     msg = get_day_events_text(datetime.datetime.now(datetime.UTC), "today's events")
     await update.message.reply_text(f"Today's events:\n{msg}", parse_mode=telegram.constants.ParseMode.HTML)
 
-@allowed_users
-@auto_auth
 async def tomorrow(update: Update, context: CallbackContext):
     """Send tomorrow's events."""
     msg = get_day_events_text(datetime.datetime.now(datetime.UTC) + datetime.timedelta(days=1), "tomorrow's events")
     await update.message.reply_text(f"Tomorrow's events:\n{msg}", parse_mode=telegram.constants.ParseMode.HTML)
 
-@allowed_users
-@auto_auth
 async def weekend(update: Update, context: CallbackContext):
     """Send weekend basketball events."""
     now = datetime.datetime.now(datetime.UTC)
@@ -537,15 +438,13 @@ async def weekend(update: Update, context: CallbackContext):
     )
     await update.message.reply_text(msg, parse_mode=telegram.constants.ParseMode.HTML)
 
-@allowed_users
-@auto_auth
 async def morning(update: Update, context: CallbackContext):
     """Send the morning message manually."""
     # Send the morning message manually
     fake_context = type("obj", (), {"bot": context.bot})
     await send_morning_message(fake_context)
 
-@allowed_users
+
 async def myid(update: Update, context: CallbackContext):
     """Send user's chat ID."""
     # Send user's chat ID
@@ -563,7 +462,6 @@ def save_parent(chat_id):
         parents.append(chat_id)
         save_json(PARENTS_FILE, parents)
 
-@allowed_users
 async def leftschool(update: Update, context: CallbackContext):
     """Notify parents when Miron leaves school."""
     if update.effective_user.username != "barykinmiron":
@@ -590,7 +488,7 @@ async def leftschool(update: Update, context: CallbackContext):
     await update.message.reply_text(f"Notifications sent.\nMessage: {msg}")
 
 # -------------------- BUTTON HANDLER --------------------
-@allowed_users
+
 async def button_handler(update: Update, context: CallbackContext):
     """Handle button presses."""
     text, user = update.message.text.strip().upper(), update.effective_user.username
@@ -605,17 +503,21 @@ async def button_handler(update: Update, context: CallbackContext):
             await weekend(update, context)
 
 # -------------------- ERROR HANDLER --------------------
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-    """Handle errors and notify admin/user."""
-    tb = "".join(traceback.format_exception(type(context.error), context.error, context.error.__traceback__))
+async def global_error_notify(update, context, error):
+    """Send error details to Miron and log."""
+    tb = "".join(traceback.format_exception(type(error), error, error.__traceback__))
     logger.error(tb)
-
     timestamp = datetime.datetime.now(ZoneInfo("Europe/Berlin")).strftime("%Y-%m-%d %H:%M:%S")
-    user = getattr(update.effective_user, "username", "Unknown")
-
-    admin_chat_id = 1955285579  # Miron
+    user = None
+    chat_id = None
+    if update:
+        user = getattr(getattr(update, "effective_user", None), "username", "Unknown")
+        chat_id = getattr(getattr(update, "effective_chat", None), "id", None)
+    else:
+        user = "JobQueue"
+    admin_chat_id = MIRON_ID
     msg_admin = (
-        f"⚠️ Error during @{user}'s usage\n"
+        f"⚠️ Error during {user}'s usage\n"
         f"Timestamp: {timestamp}\n"
         f"Details:\n<pre>{tb}</pre>"
     )
@@ -623,15 +525,17 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=admin_chat_id, text=msg_admin, parse_mode=telegram.constants.ParseMode.HTML)
     except Exception as e:
         logger.error(f"Failed to send error to Miron: {e}")
+    if chat_id and user != "barykinmiron":
+        try:
+            await context.bot.send_message(
+                chat_id,
+                "🚨 Your request caused an error. Miron has been notified to review it."
+            )
+        except Exception as e:
+            logger.error(f"Failed to notify user about the error: {e}")
 
-    if user != "barykinmiron":
-        chat_id = getattr(update.effective_chat, "id", None)
-        if chat_id:
-            try:
-                await context.bot.send_message(
-                    chat_id,
-                    "🚨 Your request caused an error. Miron has been notified to review it."
-                )
-            except Exception as e:
-                logger.error(f"Failed to notify user about the error: {e}")
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    """Handle errors and notify admin/user."""
+    error = getattr(context, "error", None)
+    await global_error_notify(update, context, error if error else Exception("Unknown error"))
 
