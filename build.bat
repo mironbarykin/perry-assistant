@@ -15,7 +15,7 @@ REM Copy tar file to remote server
 scp -i %REMOTE_KEY% %TAR_FILE% %REMOTE_USER%@%REMOTE_HOST%:%REMOTE_PATH%
 
 REM Run remote commands: load image and restart container
-ssh -i %REMOTE_KEY% %REMOTE_USER%@%REMOTE_HOST% "cd %REMOTE_PATH% && docker load -i %TAR_FILE% && docker stop perry || true && docker rm perry || true && docker run -d --name perry -v %REMOTE_PATH%/data:/data %IMAGE_NAME%"
+ssh -i %REMOTE_KEY% %REMOTE_USER%@%REMOTE_HOST% "cd %REMOTE_PATH% && docker load -i %TAR_FILE% && docker stop perry || true && docker rm perry || true && docker run -d --restart always --name perry -v %REMOTE_PATH%/data:/data %IMAGE_NAME%"
 
 REM Clean up local tar file
 del %TAR_FILE%

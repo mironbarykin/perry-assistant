@@ -29,7 +29,7 @@ file_handler.suffix = "%Y-%m-%d"
 file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
 
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
     handlers=[
         file_handler,
