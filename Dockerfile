@@ -6,10 +6,13 @@ WORKDIR /app
 
 COPY . /app
 
-# Create log directory for persistent logging
+# Create data and log directories for persistent storage
 RUN mkdir -p /data/logs
 
-# Set up /data as a volume for persistent data (logs, etc.)
+# Set DATA_DIR env so app uses it
+ENV DATA_DIR=/data
+
+# Set up /data as a volume for persistent data (logs, json, credentials)
 VOLUME ["/data"]
 
 RUN pip install --no-cache-dir -r requirements.txt

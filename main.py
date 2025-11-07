@@ -17,6 +17,9 @@ from googleapiclient.discovery import build
 import json
 from dotenv import load_dotenv
 from google.auth.exceptions import RefreshError
+from googleapiclient.errors import HttpError
+import html
+import shutil
 
 # -- LOGGING SETUP --
 LOG_DIR = "/data/logs/"
@@ -46,20 +49,29 @@ load_dotenv()
 TG_TOKEN = os.getenv("TG_TOKEN")
 OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")
 
+# Use DATA_DIR (mounted volume) for all persistent files
+DATA_DIR = os.getenv("DATA_DIR", "/data")
+
 PEOPLE = ['@barykinmiron', '@barykinamarina', '@bar_and_bar']
 MIRON_ID = 1955285579
 
-SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
-CREDENTIALS_FILE = './google_calendar_benny_access.json'
-TOKEN_PICKLE = 'token.pickle'
+SCOPES = ["https://www.googleapis.com/auth/calendar.readonly", "https://www.googleapis.com/auth/gmail.readonly"]
+# paths now point into DATA_DIR so files survive rebuilds
+CREDENTIALS_FILE = os.path.join(DATA_DIR, 'google_calendar_benny_access.json')
+TOKEN_PICKLE = os.path.join(DATA_DIR, 'token.pickle')
 
-NOTIFICATION_FILE = 'notification_times.json'
-PARENTS_FILE = 'parents.json'
+NOTIFICATION_FILE = os.path.join(DATA_DIR, 'notification_times.json')
+PARENTS_FILE = os.path.join(DATA_DIR, 'parents.json')
 
 HOME = {"lat": 51.261838, "lon": 6.677088}
 SCHOOL = {"lat": 51.305463, "lon": 6.743720}
 
 SET_TIME = range(1)
+
+BASKETBALL_EMAILS = ["*@uportal-wbv.de", "noreply@basketball-bund.net", "bekettgregory@gmail.com"]
+STORED_EMAIL_IDS_FILE = os.path.join(DATA_DIR, 'processed_emails.json')
+LOG_DIR = os.path.join(DATA_DIR, "logs")
+LOG_PATH = os.path.join(LOG_DIR, "logs.log")
 
 ## -- JSON FUNCTIONS --
 
@@ -204,15 +216,25 @@ def bike_advice(weather: dict, wind_deg=None, route_angle=30) -> str:
 
     return f"{emoji} {temp_msg} {wind_msg} {rain_msg}"
 
-## -- GOOGLE CALENDAR FUNCTIONS --
+## -- GOOGLE API FUNCTIONS --
 
 def get_calendar_service():
-    """Get Google Calendar API service (no auth logic)."""
+    """Getting Google Calendar API service."""
     creds = None
     if os.path.exists(TOKEN_PICKLE):
         with open(TOKEN_PICKLE, "rb") as token:
             creds = pickle.load(token)
     return build("calendar", "v3", credentials=creds)
+
+def get_gmail_service():
+    """Getting Gmail API service."""
+    creds = None
+    if os.path.exists(TOKEN_PICKLE):
+        with open(TOKEN_PICKLE, "rb") as token:
+            creds = pickle.load(token)
+    return build("gmail", "v1", credentials=creds)
+
+## -- GOOGLE CALENDAR FUNCTIONS --
 
 def get_all_calendars(service):
     """Get all calendars from the Google Calendar API."""
@@ -616,17 +638,22 @@ async def global_error_notify(update, context, error):
     else:
         user = "JobQueue"
     admin_chat_id = MIRON_ID
+
+    # Escape the traceback to avoid Telegram HTML parse errors
+    safe_tb = html.escape(tb)
     msg_admin = (
         f"⚠️ Error during {user}'s usage\n"
         f"Timestamp: {timestamp}\n"
-        f"Details:\n<pre>{tb}</pre>"
+        f"Details:\n<pre>{safe_tb}</pre>"
     )
     try:
+        # send as HTML (traceback is escaped so HTML parsing won't fail)
         await context.bot.send_message(chat_id=admin_chat_id, text=msg_admin, parse_mode=telegram.constants.ParseMode.HTML)
     except Exception as e:
         logger.error(f"Failed to send error to Miron: {e}")
     if chat_id and user != "barykinmiron":
         try:
+            # simple plain-text notification to the user who triggered the error
             await context.bot.send_message(
                 chat_id,
                 "🚨 Your request caused an error. Miron has been notified to review it."
@@ -639,11 +666,274 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     error = getattr(context, "error", None)
     await global_error_notify(update, context, error if error else Exception("Unknown error"))
 
+# -- EMAIL FUNCTIONS --
+
+def get_basketball_emails(service, max_results=10):
+    """Get basketball-related emails from Gmail."""
+    query = " OR ".join(f"from:{email}" for email in BASKETBALL_EMAILS)
+    results = service.users().messages().list(
+        userId='me', q=query, maxResults=max_results
+    ).execute()
+    return results.get('messages', [])
+
+def get_email_content(service, msg_id):
+    """Get full email content."""
+    message = service.users().messages().get(userId='me', id=msg_id, format='full').execute()
+    payload = message['payload']
+    headers = {header['name']: header['value'] for header in payload.get('headers', [])}
+    
+    if 'parts' in payload:
+        parts = payload['parts']
+        data = parts[0]['body'].get('data', '')
+    else:
+        data = payload['body'].get('data', '')
+    
+    if data:
+        import base64
+        text = base64.urlsafe_b64decode(data).decode()
+    else:
+        text = ""
+    
+    return {
+        'subject': headers.get('Subject', ''),
+        'from': headers.get('From', ''),
+        'date': headers.get('Date', ''),
+        'content': text
+    }
+
+def parse_basketball_email(content):
+    """Parse basketball email content."""
+    subject = content['subject']
+    body = content['content']
+    
+    # Determine email type
+    email_type = None
+    if "offene Umbesetzung" in subject:
+        email_type = "Umbesetzung"
+    elif "SR-Ansetzung" in subject:
+        email_type = "Ansetzung"
+    elif "Spieländerung" in subject:
+        email_type = "Spieländerung"
+    elif "Spielverlegung" in subject:
+        email_type = "Spielverlegung"
+    
+    if not email_type:
+        return None
+
+    # For double Umbesetzung, find all assignments
+    assignments = []
+    if "1. Ansetzung:" in body:
+        # Split by numbered assignments
+        parts = re.split(r'\d+\.\s*Ansetzung:', body)[1:]  # Skip text before first assignment
+        for part in parts:
+            info = {
+                'type': email_type,
+                'date': None,
+                'time': None,
+                'liga': None,
+                'location': None,
+                'teams': None,
+                'hall_code': None
+            }
+            
+            # Parse date
+            date_match = re.search(r'Datum:\s*\w+,\s*(\d{2}\.\d{2}\.\d{4})', part)
+            if date_match:
+                info['date'] = date_match.group(1)
+            
+            # Parse time
+            time_match = re.search(r'Zeit:\s*(\d{2}:\d{2})', part)
+            if time_match:
+                info['time'] = time_match.group(1)
+            
+            # Parse liga
+            liga_match = re.search(r'Liga:\s*([^\n]+)', part)
+            if liga_match:
+                info['liga'] = liga_match.group(1).strip()
+            
+            # Parse teams and location
+            teams_match = re.search(r'Begegnung:\s*([^\n]+)', part)
+            hall_match = re.search(r'Halle:\s*([^\n]+)', part)
+            
+            if teams_match:
+                info['teams'] = teams_match.group(1).strip()
+            if hall_match:
+                hall_text = hall_match.group(1).strip()
+                # Extract hall code if present (format: XXXYZZZ)
+                hall_code_match = re.search(r'\d{3}[A-Z]\d{3}', hall_text)
+                if hall_code_match:
+                    info['hall_code'] = hall_code_match.group(0)
+                info['location'] = hall_text
+            
+            if info['date'] and info['time']:  # Only add if we have at least date and time
+                assignments.append(info)
+    else:
+        # Single assignment (SR-Ansetzung format)
+        info = {
+            'type': email_type,
+            'date': None,
+            'time': None,
+            'liga': None,
+            'location': None,
+            'teams': None,
+            'hall_code': None
+        }
+        
+        # Parse date and time from SR-Ansetzung format
+        datetime_match = re.search(r'Spielbeginn:\s*(\d{2}\.\d{2}\.\d{4})\s+(\d{2}:\d{2})', body)
+        if datetime_match:
+            info['date'] = datetime_match.group(1)
+            info['time'] = datetime_match.group(2)
+        
+        # Parse liga
+        liga_match = re.search(r'Liga:\s*([^\n]+)', body)
+        if liga_match:
+            info['liga'] = liga_match.group(1).strip()
+        
+        # Parse location with hall code
+        location_match = re.search(r'Spielhalle:\s*([^\n]+)\s+\((\d{3}[A-Z]\d{3})\)', body)
+        if location_match:
+            info['location'] = location_match.group(1).strip()
+            info['hall_code'] = location_match.group(2)
+        
+        # Parse teams
+        home_match = re.search(r'Heimmannschaft:\s*([^\n]+)', body)
+        away_match = re.search(r'Gastmannschaft:\s*([^\n]+)', body)
+        if home_match and away_match:
+            info['teams'] = f"{home_match.group(1).strip()} - {away_match.group(1).strip()}"
+        
+        if info['date'] and info['time']:
+            assignments.append(info)
+    
+    return assignments if assignments else None
+
+async def check_calendar_availability(date_str, time_str):
+    """Check calendar availability for a given date and time."""
+    try:
+        date_parts = date_str.split('.')
+        date = datetime.datetime.strptime(f"{date_parts[2]}-{date_parts[1]}-{date_parts[0]} {time_str}", "%Y-%m-%d %H:%M")
+        events = get_events_for_date(date)
+        return events, any(
+            e[0] and abs((e[0] - date).total_seconds()) < 7200  # 2 hours
+            for e in events
+        )
+    except Exception as e:
+        logger.error(f"Error checking availability: {e}")
+        return [], False
+
+async def process_basketball_emails(context: ContextTypes.DEFAULT_TYPE):
+    """Process new basketball emails and send notifications."""
+    try:
+        service = get_gmail_service()
+        processed_ids = load_json(STORED_EMAIL_IDS_FILE, [])
+        
+        try:
+            messages = get_basketball_emails(service)
+        except HttpError as he:
+            # Handle Gmail API disabled / project not configured
+            try:
+                err_text = ""
+                try:
+                    # attempt to extract message from HttpError content
+                    err_text = he.error_details if hasattr(he, "error_details") else str(he)
+                except Exception:
+                    err_text = str(he)
+                logger.warning(f"Gmail API HttpError while fetching messages: {err_text}")
+                # Inform Miron in plain text (avoid HTML parsing issues)
+                await context.bot.send_message(
+                    chat_id=MIRON_ID,
+                    text=(
+                        "⚠️ Gmail API error while checking for basketball emails.\n\n"
+                        "Reason: Gmail API is not enabled for the Google project or access is not configured.\n"
+                        "Please enable the Gmail API in the Google Cloud Console for the project used by the bot.\n"
+                        "Error: " + err_text
+                    )
+                )
+            except Exception as e:
+                # If notifying fails, log it via global_error_notify
+                await global_error_notify(None, context, he)
+            return
+
+        for message_meta in messages:
+            msg_id = message_meta.get('id')
+            if not msg_id or msg_id in processed_ids:
+                continue
+                
+            content = get_email_content(service, msg_id)
+            assignments = parse_basketball_email(content)
+            
+            if not assignments:
+                processed_ids.append(msg_id)
+                continue
+
+            is_multiple = len(assignments) > 1
+            prefix = "🏀 DOUBLE" if is_multiple else "🏀"
+            
+            for assignment in assignments:
+                # Check calendar availability
+                events, conflict = await check_calendar_availability(assignment['date'], assignment['time'])
+                schedule_text = get_day_events_text(
+                    datetime.datetime.strptime(assignment['date'], '%d.%m.%Y')
+                )
+                
+                # Format location string
+                location_str = ""
+                if assignment['location']:
+                    if assignment['hall_code']:
+                        location_str = f" @ {assignment['location']} ({assignment['hall_code']})"
+                    else:
+                        location_str = f" @ {assignment['location']}"
+
+                # Build concise message
+                msg = (
+                    f"{prefix} <b>{assignment['type']}</b>: "
+                    f"{assignment['liga']} {assignment['date']} {assignment['time']} "
+                    f"{assignment['teams']}{location_str}\n\n"
+                    f"{'⚠️ Schedule conflicts!' if conflict else '✅ Schedule is free!'}\n"
+                    f"Your schedule:\n{schedule_text}"
+                )
+                
+                await context.bot.send_message(
+                    chat_id=MIRON_ID,
+                    text=msg,
+                    parse_mode=telegram.constants.ParseMode.HTML
+                )
+            
+            processed_ids.append(msg_id)
+            save_json(STORED_EMAIL_IDS_FILE, processed_ids)
+            
+    except Exception as e:
+        await global_error_notify(None, context, e)
+
+def ensure_persistent_files():
+    """Ensure DATA_DIR exists and copy default files from app dir into DATA_DIR only if missing."""
+    os.makedirs(DATA_DIR, exist_ok=True)
+    os.makedirs(LOG_DIR, exist_ok=True)
+
+    defaults = {
+        'google_calendar_benny_access.json': './google_calendar_benny_access.json',
+        'token.pickle': './token.pickle',
+        'notification_times.json': './notification_times.json',
+        'parents.json': './parents.json',
+        'processed_emails.json': './processed_emails.json'
+    }
+    for dst_name, src_path in defaults.items():
+        dst_path = os.path.join(DATA_DIR, dst_name)
+        if not os.path.exists(dst_path) and os.path.exists(src_path):
+            try:
+                shutil.copy(src_path, dst_path)
+                logger.info(f"Copied default {src_path} -> {dst_path}")
+            except Exception as e:
+                logger.error(f"Failed to copy default {src_path} -> {dst_path}: {e}")
+
 # -- MAIN FUNCTION --
 
 def main():
-    app = ApplicationBuilder().token(TG_TOKEN).build()
+    # ensure persistent folder and default files are present before app starts
+    ensure_persistent_files()
 
+    app = ApplicationBuilder().token(TG_TOKEN).build()
+    
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("today", today))
     app.add_handler(CommandHandler("tomorrow", tomorrow))
@@ -664,6 +954,8 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, button_handler))
     app.add_error_handler(error_handler)
 
+    app.job_queue.run_repeating(process_basketball_emails, interval=300)
+    
     schedule_notifications(app)
     app.run_polling()
 
