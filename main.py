@@ -1,7 +1,4 @@
 import os
-import logging
-from logging.handlers import TimedRotatingFileHandler
-
 import datetime
 import re
 import pickle
@@ -21,57 +18,11 @@ from googleapiclient.errors import HttpError
 import html
 import shutil
 
-# -- LOGGING SETUP --
-LOG_DIR = "/data/logs/"
-LOG_PATH = os.path.join(LOG_DIR, "logs.log")
-
-os.makedirs(LOG_DIR, exist_ok=True)
-
-file_handler = TimedRotatingFileHandler(LOG_PATH, when="midnight", encoding="utf-8")
-file_handler.suffix = "%Y-%m-%d"
-file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    handlers=[
-        file_handler,
-        logging.StreamHandler()
-    ]
-)
-
-logger = logging.getLogger(__name__)
-
-# -- CONFIG SETUP --
-
 load_dotenv()
 
-TG_TOKEN = os.getenv("TG_TOKEN")
-OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")
-
-# Use DATA_DIR (mounted volume) for all persistent files
-DATA_DIR = os.getenv("DATA_DIR", "/data")
-
-PEOPLE = ['@barykinmiron', '@barykinamarina', '@bar_and_bar']
-MIRON_ID = 1955285579
-
-SCOPES = ["https://www.googleapis.com/auth/calendar.readonly", "https://www.googleapis.com/auth/gmail.readonly"]
-# paths now point into DATA_DIR so files survive rebuilds
-CREDENTIALS_FILE = os.path.join(DATA_DIR, 'google_calendar_benny_access.json')
-TOKEN_PICKLE = os.path.join(DATA_DIR, 'token.pickle')
-
-NOTIFICATION_FILE = os.path.join(DATA_DIR, 'notification_times.json')
-PARENTS_FILE = os.path.join(DATA_DIR, 'parents.json')
-
-HOME = {"lat": 51.261838, "lon": 6.677088}
-SCHOOL = {"lat": 51.305463, "lon": 6.743720}
-
-SET_TIME = range(1)
-
-BASKETBALL_EMAILS = ["*@uportal-wbv.de", "noreply@basketball-bund.net", "bekettgregory@gmail.com"]
-STORED_EMAIL_IDS_FILE = os.path.join(DATA_DIR, 'processed_emails.json')
-LOG_DIR = os.path.join(DATA_DIR, "logs")
-LOG_PATH = os.path.join(LOG_DIR, "logs.log")
+# -- CUSTOM IMPORTS --
+from logs import logger, LOGS_DIR
+from consts import *
 
 ## -- JSON FUNCTIONS --
 
@@ -908,7 +859,7 @@ async def process_basketball_emails(context: ContextTypes.DEFAULT_TYPE):
 def ensure_persistent_files():
     """Ensure DATA_DIR exists and copy default files from app dir into DATA_DIR only if missing."""
     os.makedirs(DATA_DIR, exist_ok=True)
-    os.makedirs(LOG_DIR, exist_ok=True)
+    os.makedirs(LOGS_DIR, exist_ok=True)
 
     defaults = {
         'google_calendar_benny_access.json': './google_calendar_benny_access.json',
