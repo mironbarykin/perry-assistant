@@ -17,12 +17,14 @@ from google.auth.exceptions import RefreshError
 from googleapiclient.errors import HttpError
 import html
 import shutil
+import aiohttp
+from bs4 import BeautifulSoup
 
 load_dotenv()
 
 # -- CUSTOM IMPORTS --
-from logs import logger, LOGS_DIR
 from consts import *
+from logs import logger, LOGS_DIR
 
 ## -- JSON FUNCTIONS --
 
@@ -257,7 +259,12 @@ def get_events_for_date(target_date: datetime.datetime):
         ).execute().get("items", [])
 
         for e in events:
-            events_all.append(format_event(e, cal_symbol, is_basketball))
+            event_tuple = format_event(e, cal_symbol, is_basketball)
+            if event_tuple[3]:
+                if event_tuple[0] and event_tuple[0].date() == target_date.date():
+                    events_all.append(event_tuple)
+            else:
+                events_all.append(event_tuple)
 
     return sorted(events_all, key=lambda x: (not x[3], x[0] is None, x[0]))
 
@@ -452,6 +459,12 @@ async def myid(update: Update, context: CallbackContext):
     """Send user's chat ID."""
     # Send user's chat ID
     await update.message.reply_text(f"Your ID is {update.effective_chat.id}")
+
+async def emails(update: Update, context: CallbackContext):
+    """Manually trigger processing of basketball emails."""
+    await update.message.reply_text("Checking basketball emails...")
+    await process_basketball_emails(context)
+    await update.message.reply_text("Done checking basketball emails.")
 
 # -- PARENTS --
 
@@ -772,6 +785,43 @@ async def check_calendar_availability(date_str, time_str):
         logger.error(f"Error checking availability: {e}")
         return [], False
 
+# async def get_gym_address(hall_code):
+#     """Fetch gym address from basketball-bund.net by simulating a form submission (clicking 'Suchen')."""
+#     # Step 1: Load the initial page to get cookies and any hidden form fields (if needed)
+#     url = "https://www.basketball-bund.net/halleSearch.do?reqCode=onVerband"
+#     headers = {
+#         "User-Agent": "Mozilla/5.0",
+#         "Content-Type": "application/x-www-form-urlencoded"
+#     }
+#     async with aiohttp.ClientSession() as session:
+#         # Step 2: Simulate filling the form and clicking the "Suchen" button
+#         # The button triggers a POST with reqCode=search and the hall code in kurzbezeichnung
+#         data = {
+#             "kurzbezeichnung": hall_code,
+#             "verbandBezirkKreisVereinSelection.verband_id": "11",
+#             "reqCode": "search"
+#         }
+#         async with session.post("https://www.basketball-bund.net/halleSearch.do", data=data, headers=headers) as resp:
+#             html_text = await resp.text()
+
+#     soup = BeautifulSoup(html_text, "html.parser")
+#     tables = soup.find_all("table", {"class": "sportView"})
+#     addr = None
+
+#     for table in tables:
+#         rows = table.find_all("tr")
+#         for row in rows[1:]:
+#             cols = row.find_all("td")
+#             if len(cols) >= 5:
+#                 code = cols[1].get_text(strip=True)
+#                 if code.replace(" ", "") == hall_code.replace(" ", ""):
+#                     street = cols[2].get_text(strip=True)
+#                     plz = cols[3].get_text(strip=True)
+#                     city = cols[4].get_text(strip=True)
+#                     addr = f"{street}, {plz} {city}"
+#                     return addr
+#     return addr
+
 async def process_basketball_emails(context: ContextTypes.DEFAULT_TYPE):
     """Process new basketball emails and send notifications."""
     try:
@@ -802,7 +852,7 @@ async def process_basketball_emails(context: ContextTypes.DEFAULT_TYPE):
                 )
             except Exception as e:
                 # If notifying fails, log it via global_error_notify
-                await global_error_notify(None, context, he)
+                await global_error_notify(None, context, e)
             return
 
         for message_meta in messages:
@@ -821,27 +871,17 @@ async def process_basketball_emails(context: ContextTypes.DEFAULT_TYPE):
             prefix = "🏀 DOUBLE" if is_multiple else "🏀"
             
             for assignment in assignments:
-                # Check calendar availability
-                events, conflict = await check_calendar_availability(assignment['date'], assignment['time'])
-                schedule_text = get_day_events_text(
-                    datetime.datetime.strptime(assignment['date'], '%d.%m.%Y')
-                )
-                
-                # Format location string
+
                 location_str = ""
-                if assignment['location']:
-                    if assignment['hall_code']:
-                        location_str = f" @ {assignment['location']} ({assignment['hall_code']})"
-                    else:
-                        location_str = f" @ {assignment['location']}"
+
+                if assignment['hall_code']:
+                    location_str = f" @ {assignment['location']} ({assignment['hall_code']})"
 
                 # Build concise message
                 msg = (
                     f"{prefix} <b>{assignment['type']}</b>: "
                     f"{assignment['liga']} {assignment['date']} {assignment['time']} "
                     f"{assignment['teams']}{location_str}\n\n"
-                    f"{'⚠️ Schedule conflicts!' if conflict else '✅ Schedule is free!'}\n"
-                    f"Your schedule:\n{schedule_text}"
                 )
                 
                 await context.bot.send_message(
@@ -892,6 +932,7 @@ def main():
     app.add_handler(CommandHandler("leftschool", leftschool))
     app.add_handler(CommandHandler("morning", morning))
     app.add_handler(CommandHandler("myid", myid))
+    app.add_handler(CommandHandler("emails", emails))
 
     conv = ConversationHandler(
         entry_points=[CommandHandler("settime", settime)],
@@ -905,7 +946,7 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, button_handler))
     app.add_error_handler(error_handler)
 
-    app.job_queue.run_repeating(process_basketball_emails, interval=300)
+    app.job_queue.run_repeating(process_basketball_emails, interval=300, first=0)
     
     schedule_notifications(app)
     app.run_polling()

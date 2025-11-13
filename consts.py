@@ -27,8 +27,3 @@ PARENTS_FILE = os.path.join(DATA_DIR, 'parents.json')
 ## -- OTHER
 
 SET_TIME = range(1)
-
-def ensure_persistent_files():
-    """Ensure DATA_DIR exists and copy default files from app dir into DATA_DIR only if missing."""
-    os.makedirs(DATA_DIR, exist_ok=True)
-

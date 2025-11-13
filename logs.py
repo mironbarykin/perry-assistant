@@ -3,10 +3,11 @@ import os
 from logging.handlers import TimedRotatingFileHandler
 
 LOGS_DIR = "/data/logs/"
-LOGS_PATH = os.path.join(LOGS_DIR, "logs_")
 LOGS_STATISTICS_LEVEL = 25
 
-file_handler = TimedRotatingFileHandler(LOGS_PATH, when="midnight", encoding="utf-8")
+file_handler = TimedRotatingFileHandler(
+    os.path.join(LOGS_DIR, "logs"), when="midnight", encoding="utf-8"
+)
 file_handler.suffix = "%Y-%m-%d.log"
 file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
 
