@@ -387,7 +387,7 @@ async def start(update: Update, context: CallbackContext):
         save_parent(update.effective_user.id)
 
     keyboard = (
-        [[KeyboardButton("BIKE"), KeyboardButton("TRAIN"), KeyboardButton("PRACTICE")]]
+        [[KeyboardButton("EMAILS"), KeyboardButton("TODAY"), KeyboardButton("WEEKEND")]]
         if is_miron else
         [[KeyboardButton("TODAY"), KeyboardButton("WEEKEND")]]
     )
@@ -479,45 +479,19 @@ def save_parent(chat_id):
         parents.append(chat_id)
         save_json(PARENTS_FILE, parents)
 
-async def leftschool(update: Update, context: CallbackContext):
-    """Notify parents when Miron leaves school."""
-    if update.effective_user.username != "barykinmiron":
-        await update.message.reply_text("Only Miron can use this.")
-        return
-
-    if not context.args or context.args[0].lower() not in ["bike", "train", "practice"]:
-        await update.message.reply_text("Usage: /leftschool [bike|train|practice]")
-        return
-
-    method = context.args[0].lower()
-    eta = {
-        "bike": "by bike <i>(ETA 33 minutes)</i>",
-        "train": "by train <i>(ETA 60 minutes)</i>",
-        "practice": "for practice <i>(ETA 20 minutes after practice)</i>"
-    }[method]
-
-    msg = f"Miron has left school {eta}."
-    for pid in load_parents():
-        try:
-            await context.bot.send_message(pid, msg)
-        except Exception:
-            pass
-    await update.message.reply_text(f"Notifications sent.\nMessage: {msg}")
-
 # -- BUTTON HANDLER --
 
 async def button_handler(update: Update, context: CallbackContext):
     """Handle button presses."""
     text, user = update.message.text.strip().upper(), update.effective_user.username
     if user == "barykinmiron":
-        if text in ["BIKE", "TRAIN", "PRACTICE"]:
-            context.args = [text.lower()]
-            await leftschool(update, context)
-    else:
-        if text == "TODAY":
-            await today(update, context)
-        elif text == "WEEKEND":
-            await weekend(update, context)
+        if text == "EMAILS":
+            await emails(update, context)
+
+    if text == "TODAY":
+        await today(update, context)
+    elif text == "WEEKEND":
+        await weekend(update, context)
 
 # -- ERROR HANDLER --
 
@@ -929,7 +903,6 @@ def main():
     app.add_handler(CommandHandler("today", today))
     app.add_handler(CommandHandler("tomorrow", tomorrow))
     app.add_handler(CommandHandler("weekend", weekend))
-    app.add_handler(CommandHandler("leftschool", leftschool))
     app.add_handler(CommandHandler("morning", morning))
     app.add_handler(CommandHandler("myid", myid))
     app.add_handler(CommandHandler("emails", emails))
