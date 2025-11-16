@@ -3,7 +3,6 @@ import datetime
 import re
 import pickle
 import traceback
-from typing import Any
 from zoneinfo import ZoneInfo
 from urllib.parse import quote_plus
 import requests
@@ -11,7 +10,6 @@ import telegram
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ConversationHandler, filters, CallbackContext, ContextTypes
 from googleapiclient.discovery import build
-import json
 from dotenv import load_dotenv
 from google.auth.exceptions import RefreshError
 from googleapiclient.errors import HttpError
@@ -25,24 +23,7 @@ load_dotenv()
 # -- CUSTOM IMPORTS --
 from consts import *
 from logs import logger, LOGS_DIR
-
-## -- JSON FUNCTIONS --
-
-def load_json(file: str, default: Any) -> Any:
-    """Load JSON from file, return default if file does not exist."""
-    if os.path.exists(file):
-        with open(file, "r") as f:
-            return json.load(f)
-    return default
-
-def save_json(file: str, data: Any) -> None:
-    """Save data as JSON to file."""
-    with open(file, "w") as f:
-        json.dump(data, f)
-
-def clean_text(text: str) -> str:
-    """Remove emojis and special symbols for easier matching."""
-    return re.sub(r"[^\w\s]", "", text).lower() if text else ""
+from helpers import load_json, save_json, clean_text
 
 # -- WEATHER FUNCTIONS --
 
@@ -758,43 +739,6 @@ async def check_calendar_availability(date_str, time_str):
     except Exception as e:
         logger.error(f"Error checking availability: {e}")
         return [], False
-
-# async def get_gym_address(hall_code):
-#     """Fetch gym address from basketball-bund.net by simulating a form submission (clicking 'Suchen')."""
-#     # Step 1: Load the initial page to get cookies and any hidden form fields (if needed)
-#     url = "https://www.basketball-bund.net/halleSearch.do?reqCode=onVerband"
-#     headers = {
-#         "User-Agent": "Mozilla/5.0",
-#         "Content-Type": "application/x-www-form-urlencoded"
-#     }
-#     async with aiohttp.ClientSession() as session:
-#         # Step 2: Simulate filling the form and clicking the "Suchen" button
-#         # The button triggers a POST with reqCode=search and the hall code in kurzbezeichnung
-#         data = {
-#             "kurzbezeichnung": hall_code,
-#             "verbandBezirkKreisVereinSelection.verband_id": "11",
-#             "reqCode": "search"
-#         }
-#         async with session.post("https://www.basketball-bund.net/halleSearch.do", data=data, headers=headers) as resp:
-#             html_text = await resp.text()
-
-#     soup = BeautifulSoup(html_text, "html.parser")
-#     tables = soup.find_all("table", {"class": "sportView"})
-#     addr = None
-
-#     for table in tables:
-#         rows = table.find_all("tr")
-#         for row in rows[1:]:
-#             cols = row.find_all("td")
-#             if len(cols) >= 5:
-#                 code = cols[1].get_text(strip=True)
-#                 if code.replace(" ", "") == hall_code.replace(" ", ""):
-#                     street = cols[2].get_text(strip=True)
-#                     plz = cols[3].get_text(strip=True)
-#                     city = cols[4].get_text(strip=True)
-#                     addr = f"{street}, {plz} {city}"
-#                     return addr
-#     return addr
 
 async def process_basketball_emails(context: ContextTypes.DEFAULT_TYPE):
     """Process new basketball emails and send notifications."""
