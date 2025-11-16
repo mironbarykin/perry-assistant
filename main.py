@@ -15,8 +15,7 @@ from google.auth.exceptions import RefreshError
 from googleapiclient.errors import HttpError
 import html
 import shutil
-import aiohttp
-from bs4 import BeautifulSoup
+
 
 load_dotenv()
 
@@ -24,6 +23,7 @@ load_dotenv()
 from consts import *
 from logs import logger, LOGS_DIR
 from helpers import load_json, save_json, clean_text
+from gyms import get_gym_address
 
 # -- WEATHER FUNCTIONS --
 
@@ -792,14 +792,15 @@ async def process_basketball_emails(context: ContextTypes.DEFAULT_TYPE):
 
                 location_str = ""
 
-                if assignment['hall_code']:
+                if assignment['hall_code'] == assignment['location']:
+                    location_str = f" @ {get_gym_address(assignment['hall_code'])} ({assignment['hall_code']})"
+                else:
                     location_str = f" @ {assignment['location']} ({assignment['hall_code']})"
 
-                # Build concise message
                 msg = (
-                    f"{prefix} <b>{assignment['type']}</b>: "
-                    f"{assignment['liga']} {assignment['date']} {assignment['time']} "
-                    f"{assignment['teams']}{location_str}\n\n"
+                    f"{prefix} <b>{assignment['type']}</b>: {assignment['liga']} \n"
+                    f"{assignment['teams']} \n"
+                    f"<b>{assignment['date']} {assignment['time']}</b> {location_str}\n\n"
                 )
                 
                 await context.bot.send_message(
@@ -824,8 +825,10 @@ def ensure_persistent_files():
         'token.pickle': './token.pickle',
         'notification_times.json': './notification_times.json',
         'parents.json': './parents.json',
-        'processed_emails.json': './processed_emails.json'
+        'processed_emails.json': './processed_emails.json',
+        'gyms_cache.json': './gyms_cache.json'
     }
+
     for dst_name, src_path in defaults.items():
         dst_path = os.path.join(DATA_DIR, dst_name)
         if not os.path.exists(dst_path) and os.path.exists(src_path):
