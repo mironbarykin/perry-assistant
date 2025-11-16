@@ -4,7 +4,6 @@ import re
 import pickle
 import traceback
 from zoneinfo import ZoneInfo
-from urllib.parse import quote_plus
 import requests
 import telegram
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
@@ -22,11 +21,29 @@ load_dotenv()
 # -- CUSTOM IMPORTS --
 from consts import *
 from logs import logger, LOGS_DIR
-from helpers import load_json, save_json, clean_text
+from helpers import load_json, save_json
 from gyms import get_gym_address
 from emails import get_basketball_emails, get_email_content, parse_basketball_email
+from weather import get_weather, bike_advice
+from calendar import get_events_for_date, format_event, check_school_practice_gap
 
-# -- WEATHER FUNCTIONS --
+## -- APISERVICES FUNCTIONS --
+
+def get_calendar_service():
+    """Getting Google Calendar API service."""
+    creds = None
+    if os.path.exists(TOKEN_PICKLE):
+        with open(TOKEN_PICKLE, "rb") as token:
+            creds = pickle.load(token)
+    return build("calendar", "v3", credentials=creds)
+
+def get_gmail_service():
+    """Getting Gmail API service."""
+    creds = None
+    if os.path.exists(TOKEN_PICKLE):
+        with open(TOKEN_PICKLE, "rb") as token:
+            creds = pickle.load(token)
+    return build("gmail", "v1", credentials=creds)
 
 def get_weather(location: dict, target_dt: datetime.datetime) -> dict:
     """Fetch weather data for a location and time."""
@@ -63,166 +80,12 @@ def get_weather(location: dict, target_dt: datetime.datetime) -> dict:
         "desc": weather_desc,
     }
 
-def wind_direction_effect(wind_deg: float, route_angle: int = 30) -> str:
-    """Return tailwind/headwind/crosswind based on wind coming from wind_deg."""
-    blow_to = (wind_deg + 180) % 360
-    diff = abs(blow_to - route_angle)
-    diff = min(diff, 360 - diff)
-
-    if diff <= 45:
-        return "tailwind"
-    elif diff >= 135:
-        return "headwind"
-    else:
-        return "crosswind"
-
-def bike_advice(weather: dict, wind_deg=None, route_angle=30) -> str:
-    """Evaluate biking conditions and return advice."""
-
-
-    if not weather or weather.get("temp") is None:
-        return "⚫ Weather data unavailable, impossible to use bike 🚲"
-
-    temp = weather.get("temp")
-    wind = weather.get("wind_speed")
-    rain = weather.get("rain")
-
-    score = 0  # lower is better
-
-    # --- Temperature evaluation ---
-    if temp < 0:
-        score += 3
-        temp_msg = "Too cold ❄️"
-    elif temp > 35:
-        score += 3
-        temp_msg = "Too hot 🔥"
-    elif 0 <= temp < 10 or 30 < temp <= 35:
-        score += 1
-        temp_msg = "Temperature is a bit extreme 🌡️"
-    else:
-        temp_msg = "Temperature is good 👍"
-
-    temp_msg += f" ({temp}°C)"
-
-    # --- Wind direction evaluation ---
-    if wind is None:
-        wind_msg = "Wind data unavailable 🌬️"
-    else:            
-        if wind_deg is not None:
-            effect = wind_direction_effect(wind_deg, route_angle)
-            if effect == "tailwind":
-                score -= 1  # makes biking easier
-                wind_msg = "👍 Tailwind"
-            elif effect == "headwind":
-                score += 1  # makes biking harder
-                wind_msg = "<b>👎 Headwind</b>"
-            else:
-                wind_msg = "👈 Crosswind"
-        else:
-            wind_msg = "💨 Wind"
-
-        if wind > 25:
-            score += 3
-        elif 15 < wind <= 25:
-            score += 2
-        elif 5 < wind <= 15:
-            score += 1
-
-        wind_msg += f" ({wind} m/s)"
-
-    # --- Rain evaluation ---
-    if rain:
-        score += 2
-        rain_msg = "🌧️ Rainy, <b>take rain gear ☔</b>"
-    else:
-        rain_msg = "☀️ No rain"
-
-    # --- Overall emoji based on score ---
-    if score <= 0:
-        emoji = "🟢"
-    elif 1 <= score <= 2:
-        emoji = "🟡"
-    elif 3 <= score <= 4:
-        emoji = "🟠"
-    elif 5 <= score <= 6:
-        emoji = "🔴"
-    else:  # score >= 7
-        emoji = "⚫"
-
-    return f"{emoji} {temp_msg} {wind_msg} {rain_msg}"
-
-## -- GOOGLE API FUNCTIONS --
-
-def get_calendar_service():
-    """Getting Google Calendar API service."""
-    creds = None
-    if os.path.exists(TOKEN_PICKLE):
-        with open(TOKEN_PICKLE, "rb") as token:
-            creds = pickle.load(token)
-    return build("calendar", "v3", credentials=creds)
-
-def get_gmail_service():
-    """Getting Gmail API service."""
-    creds = None
-    if os.path.exists(TOKEN_PICKLE):
-        with open(TOKEN_PICKLE, "rb") as token:
-            creds = pickle.load(token)
-    return build("gmail", "v1", credentials=creds)
 
 ## -- GOOGLE CALENDAR FUNCTIONS --
 
 def get_all_calendars(service):
     """Get all calendars from the Google Calendar API."""
     return service.calendarList().list().execute().get("items", [])
-
-def format_event(event, cal_symbol, is_basketball):
-    """Format a single calendar event for display."""
-    summary = event.get("summary", "No Title")
-    start_raw = event["start"].get("dateTime", event["start"].get("date"))
-    end_raw = event["end"].get("dateTime", event["end"].get("date"))
-    location = event.get("location")
-
-    all_day = "date" in event["start"]
-
-    def parse_time(raw):
-        if not raw:
-            return None
-        try:
-            if len(raw) == 10:
-                return datetime.datetime.fromisoformat(raw + "T00:00:00+00:00")
-            return datetime.datetime.fromisoformat(raw.replace("Z", "+00:00"))
-        except Exception:
-            return None
-
-    start_dt = parse_time(start_raw)
-    end_dt = parse_time(end_raw)
-
-    if all_day:
-        time_str = ""
-    else:
-        start_time = start_dt.strftime("%H:%M") if start_dt else "??:??"
-        end_time = end_dt.strftime("%H:%M") if end_dt else "??:??"
-        time_str = f"<b>{start_time}-{end_time}</b>"
-
-    address = ""
-    if is_basketball and location:
-        loc_lower = location.lower()
-        if "görresstraße" in loc_lower or "rso" in loc_lower:
-            address = " (RSO Osterath)"
-        elif "mönkesweg" in loc_lower or "smg" in loc_lower:
-            address = " (SMG Strümp)"
-        else:
-            gmaps_url = f"https://maps.google.com/?q={quote_plus(location)}"
-            address = f"<a href='{gmaps_url}'>{location}</a>"
-
-    prefix = "📌 " if all_day else ""
-
-    if all_day:
-        line = f"{prefix}{summary}"
-    else:
-        line = f"{prefix}{cal_symbol} {time_str} — {summary} {address}".strip()
-
-    return start_dt, line, is_basketball, all_day, end_dt
 
 def get_events_for_date(target_date: datetime.datetime):
     """Get all events for a specific date."""
@@ -257,29 +120,6 @@ def get_day_events_text(date: datetime.datetime, label="Events") -> str:
         return f"No {label.lower()} found."
     return "\n".join(e[1] for e in events)
 
-def check_school_practice_gap(events):
-    """Check if there is a short gap between school and practice."""
-    # Extract end times of school events
-    school_end_times = [
-        e[4] for e in events
-        if e[4] is not None and "school" in clean_text(e[1])
-    ]
-    # Extract start times of basketball/practice events
-    practice_start_times = [
-        e[0] for e in events
-        if e[0] is not None and "practice" in clean_text(e[1])
-    ]
-
-    if not school_end_times or not practice_start_times:
-        return None
-
-    school_end = max(school_end_times)
-    practice_start = min(practice_start_times)
-    gap_hours = (practice_start - school_end).total_seconds() / 3600
-
-    if gap_hours < 2:
-        return "⚠️ <b>Little time between school and basketball — plan ahead!</b>"
-    return None
 
 ## -- NOTIFICATIONS --
 
@@ -381,7 +221,6 @@ async def start(update: Update, context: CallbackContext):
         "Welcome! Use /settime to set daily notification time. Use /today, /tomorrow, or /weekend to get the events.",
         reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     )
-
 
 async def settime(update: Update, context: CallbackContext):
     """Handle /settime command."""
