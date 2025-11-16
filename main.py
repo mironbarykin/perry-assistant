@@ -24,6 +24,7 @@ from consts import *
 from logs import logger, LOGS_DIR
 from helpers import load_json, save_json, clean_text
 from gyms import get_gym_address
+from emails import get_basketball_emails, get_email_content, parse_basketball_email
 
 # -- WEATHER FUNCTIONS --
 
@@ -365,7 +366,11 @@ async def start(update: Update, context: CallbackContext):
     """Handle /start command."""
     is_miron = update.effective_user.username == "barykinmiron"
     if not is_miron:
-        save_parent(update.effective_user.id)
+        parents = load_json(PARENTS_FILE, [])
+        if update.effective_user.id not in parents:
+            parents.append(update.effective_user.id)
+            save_json(PARENTS_FILE, parents)
+
 
     keyboard = (
         [[KeyboardButton("EMAILS"), KeyboardButton("TODAY"), KeyboardButton("WEEKEND")]]
@@ -380,7 +385,6 @@ async def start(update: Update, context: CallbackContext):
 
 async def settime(update: Update, context: CallbackContext):
     """Handle /settime command."""
-    # Ask user to send the notification time
     await update.message.reply_text("Send time as HH:MM (24h). Example: 08:30")
     return SET_TIME
 
@@ -435,30 +439,15 @@ async def morning(update: Update, context: CallbackContext):
     fake_context = type("obj", (), {"bot": context.bot})
     await send_morning_message(fake_context)
 
-
 async def myid(update: Update, context: CallbackContext):
     """Send user's chat ID."""
-    # Send user's chat ID
     await update.message.reply_text(f"Your ID is {update.effective_chat.id}")
 
 async def emails(update: Update, context: CallbackContext):
     """Manually trigger processing of basketball emails."""
-    await update.message.reply_text("Checking basketball emails...")
+    await update.message.reply_text("📩 Scanning your emails... ")
     await process_basketball_emails(context)
-    await update.message.reply_text("Done checking basketball emails.")
-
-# -- PARENTS --
-
-def load_parents():
-    """Load parent chat IDs from file."""
-    return load_json(PARENTS_FILE, [])
-
-def save_parent(chat_id):
-    """Save parent chat ID to file."""
-    parents = load_parents()
-    if chat_id not in parents:
-        parents.append(chat_id)
-        save_json(PARENTS_FILE, parents)
+    await update.message.reply_text("👍 All of your emails have been scanned!")
 
 # -- BUTTON HANDLER --
 
@@ -542,7 +531,6 @@ async def auth_error_notify(update, context, error):
 
 async def global_error_notify(update, context, error):
     """Send error details to Miron and log."""
-    # Handle google.auth.exceptions.RefreshError
     if isinstance(error, RefreshError):
         await auth_error_notify(update, context, error)
         return
@@ -566,7 +554,6 @@ async def global_error_notify(update, context, error):
         f"Details:\n<pre>{safe_tb}</pre>"
     )
     try:
-        # send as HTML (traceback is escaped so HTML parsing won't fail)
         await context.bot.send_message(chat_id=admin_chat_id, text=msg_admin, parse_mode=telegram.constants.ParseMode.HTML)
     except Exception as e:
         logger.error(f"Failed to send error to Miron: {e}")
@@ -587,144 +574,6 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 
 # -- EMAIL FUNCTIONS --
 
-def get_basketball_emails(service, max_results=10):
-    """Get basketball-related emails from Gmail."""
-    query = " OR ".join(f"from:{email}" for email in BASKETBALL_EMAILS)
-    results = service.users().messages().list(
-        userId='me', q=query, maxResults=max_results
-    ).execute()
-    return results.get('messages', [])
-
-def get_email_content(service, msg_id):
-    """Get full email content."""
-    message = service.users().messages().get(userId='me', id=msg_id, format='full').execute()
-    payload = message['payload']
-    headers = {header['name']: header['value'] for header in payload.get('headers', [])}
-    
-    if 'parts' in payload:
-        parts = payload['parts']
-        data = parts[0]['body'].get('data', '')
-    else:
-        data = payload['body'].get('data', '')
-    
-    if data:
-        import base64
-        text = base64.urlsafe_b64decode(data).decode()
-    else:
-        text = ""
-    
-    return {
-        'subject': headers.get('Subject', ''),
-        'from': headers.get('From', ''),
-        'date': headers.get('Date', ''),
-        'content': text
-    }
-
-def parse_basketball_email(content):
-    """Parse basketball email content."""
-    subject = content['subject']
-    body = content['content']
-    
-    # Determine email type
-    email_type = None
-    if "offene Umbesetzung" in subject:
-        email_type = "Umbesetzung"
-    elif "SR-Ansetzung" in subject:
-        email_type = "Ansetzung"
-    elif "Spieländerung" in subject:
-        email_type = "Spieländerung"
-    elif "Spielverlegung" in subject:
-        email_type = "Spielverlegung"
-    
-    if not email_type:
-        return None
-
-    # For double Umbesetzung, find all assignments
-    assignments = []
-    if "1. Ansetzung:" in body:
-        # Split by numbered assignments
-        parts = re.split(r'\d+\.\s*Ansetzung:', body)[1:]  # Skip text before first assignment
-        for part in parts:
-            info = {
-                'type': email_type,
-                'date': None,
-                'time': None,
-                'liga': None,
-                'location': None,
-                'teams': None,
-                'hall_code': None
-            }
-            
-            # Parse date
-            date_match = re.search(r'Datum:\s*\w+,\s*(\d{2}\.\d{2}\.\d{4})', part)
-            if date_match:
-                info['date'] = date_match.group(1)
-            
-            # Parse time
-            time_match = re.search(r'Zeit:\s*(\d{2}:\d{2})', part)
-            if time_match:
-                info['time'] = time_match.group(1)
-            
-            # Parse liga
-            liga_match = re.search(r'Liga:\s*([^\n]+)', part)
-            if liga_match:
-                info['liga'] = liga_match.group(1).strip()
-            
-            # Parse teams and location
-            teams_match = re.search(r'Begegnung:\s*([^\n]+)', part)
-            hall_match = re.search(r'Halle:\s*([^\n]+)', part)
-            
-            if teams_match:
-                info['teams'] = teams_match.group(1).strip()
-            if hall_match:
-                hall_text = hall_match.group(1).strip()
-                # Extract hall code if present (format: XXXYZZZ)
-                hall_code_match = re.search(r'\d{3}[A-Z]\d{3}', hall_text)
-                if hall_code_match:
-                    info['hall_code'] = hall_code_match.group(0)
-                info['location'] = hall_text
-            
-            if info['date'] and info['time']:  # Only add if we have at least date and time
-                assignments.append(info)
-    else:
-        # Single assignment (SR-Ansetzung format)
-        info = {
-            'type': email_type,
-            'date': None,
-            'time': None,
-            'liga': None,
-            'location': None,
-            'teams': None,
-            'hall_code': None
-        }
-        
-        # Parse date and time from SR-Ansetzung format
-        datetime_match = re.search(r'Spielbeginn:\s*(\d{2}\.\d{2}\.\d{4})\s+(\d{2}:\d{2})', body)
-        if datetime_match:
-            info['date'] = datetime_match.group(1)
-            info['time'] = datetime_match.group(2)
-        
-        # Parse liga
-        liga_match = re.search(r'Liga:\s*([^\n]+)', body)
-        if liga_match:
-            info['liga'] = liga_match.group(1).strip()
-        
-        # Parse location with hall code
-        location_match = re.search(r'Spielhalle:\s*([^\n]+)\s+\((\d{3}[A-Z]\d{3})\)', body)
-        if location_match:
-            info['location'] = location_match.group(1).strip()
-            info['hall_code'] = location_match.group(2)
-        
-        # Parse teams
-        home_match = re.search(r'Heimmannschaft:\s*([^\n]+)', body)
-        away_match = re.search(r'Gastmannschaft:\s*([^\n]+)', body)
-        if home_match and away_match:
-            info['teams'] = f"{home_match.group(1).strip()} - {away_match.group(1).strip()}"
-        
-        if info['date'] and info['time']:
-            assignments.append(info)
-    
-    return assignments if assignments else None
 
 async def check_calendar_availability(date_str, time_str):
     """Check calendar availability for a given date and time."""
@@ -745,7 +594,9 @@ async def process_basketball_emails(context: ContextTypes.DEFAULT_TYPE):
     try:
         service = get_gmail_service()
         processed_ids = load_json(STORED_EMAIL_IDS_FILE, [])
-        
+        # Only keep last 10 checked emails in cache
+        processed_ids = processed_ids[-10:] if processed_ids else []
+
         try:
             messages = get_basketball_emails(service)
         except HttpError as he:
@@ -783,15 +634,14 @@ async def process_basketball_emails(context: ContextTypes.DEFAULT_TYPE):
             
             if not assignments:
                 processed_ids.append(msg_id)
+                processed_ids = processed_ids[-10:]
                 continue
 
             is_multiple = len(assignments) > 1
             prefix = "🏀 DOUBLE" if is_multiple else "🏀"
             
             for assignment in assignments:
-
                 location_str = ""
-
                 if assignment['hall_code'] == assignment['location']:
                     location_str = f" @ {get_gym_address(assignment['hall_code'])} ({assignment['hall_code']})"
                 else:
@@ -810,10 +660,13 @@ async def process_basketball_emails(context: ContextTypes.DEFAULT_TYPE):
                 )
             
             processed_ids.append(msg_id)
+            processed_ids = processed_ids[-10:]
             save_json(STORED_EMAIL_IDS_FILE, processed_ids)
             
     except Exception as e:
         await global_error_notify(None, context, e)
+
+# -- MAIN FUNCTIONS --
 
 def ensure_persistent_files():
     """Ensure DATA_DIR exists and copy default files from app dir into DATA_DIR only if missing."""
@@ -838,10 +691,7 @@ def ensure_persistent_files():
             except Exception as e:
                 logger.error(f"Failed to copy default {src_path} -> {dst_path}: {e}")
 
-# -- MAIN FUNCTION --
-
 def main():
-    # ensure persistent folder and default files are present before app starts
     ensure_persistent_files()
 
     app = ApplicationBuilder().token(TG_TOKEN).build()
@@ -861,7 +711,6 @@ def main():
     )
     app.add_handler(conv)
 
-    # Register handle_auth_code BEFORE button_handler!
     app.add_handler(MessageHandler(filters.Regex(r"^4/.*"), handle_auth_code))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, button_handler))
     app.add_error_handler(error_handler)
