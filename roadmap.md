@@ -4,16 +4,11 @@
 
 ## Nov. 2025
 
-- Fixes
-    - Correcting email readability.
-    - Correcting games notification issues.
-    - Correcting availability on games issues.
-
 - Refactoring
     - Code cleanup and optimization for better performance.
     - Modularizing components for easier maintenance.
 
-- Game halls address and distance calculation.
+- Game gyms distance calculation.
 
 ## Dec. 2025
 

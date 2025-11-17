@@ -413,20 +413,37 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 
 # -- EMAIL FUNCTIONS --
 
+def check_game_conflict(new_game_dt: datetime.datetime):
+    """Check schedule for conflicts with a new game on the same day."""
+    events = get_events_for_date(new_game_dt)
+    game_times = [e[0] for e in events if e[0] and ("game" in e[1].lower() or "practice" in e[1].lower())]
 
-async def check_calendar_availability(date_str, time_str):
-    """Check calendar availability for a given date and time."""
-    try:
-        date_parts = date_str.split('.')
-        date = datetime.datetime.strptime(f"{date_parts[2]}-{date_parts[1]}-{date_parts[0]} {time_str}", "%Y-%m-%d %H:%M")
-        events = get_events_for_date(date)
-        return events, any(
-            e[0] and abs((e[0] - date).total_seconds()) < 7200  # 2 hours
-            for e in events
-        )
-    except Exception as e:
-        logger.error(f"Error checking availability: {e}")
-        return [], False
+    # Ensure all datetimes are naive or all are aware (convert to naive in UTC)
+    def to_naive(dt):
+        if dt.tzinfo is not None:
+            return dt.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+        return dt
+
+    new_game_dt_naive = to_naive(new_game_dt)
+    game_times_naive = [to_naive(dt) for dt in game_times]
+
+    if not game_times_naive:
+        return "✅"
+
+    min_diff = None
+    for dt in game_times_naive:
+        diff_hours = abs((dt - new_game_dt_naive).total_seconds()) / 3600
+        if min_diff is None or diff_hours < min_diff:
+            min_diff = diff_hours
+
+    if min_diff is not None:
+        if min_diff < 2:
+            return "⛔"
+        elif 2 <= min_diff < 3:
+            return "⚠️"
+        else:
+            return "🟢"
+    return "❔"
 
 async def process_basketball_emails(context: ContextTypes.DEFAULT_TYPE):
     """Process new basketball emails and send notifications."""
@@ -459,7 +476,6 @@ async def process_basketball_emails(context: ContextTypes.DEFAULT_TYPE):
                     )
                 )
             except Exception as e:
-                # If notifying fails, log it via global_error_notify
                 await global_error_notify(None, context, e)
             return
 
@@ -477,7 +493,7 @@ async def process_basketball_emails(context: ContextTypes.DEFAULT_TYPE):
                 continue
 
             is_multiple = len(assignments) > 1
-            prefix = "🏀 DOUBLE" if is_multiple else "🏀"
+            prefix = "🏀 2x " if is_multiple else "🏀"
             
             for assignment in assignments:
                 location_str = ""
@@ -487,9 +503,10 @@ async def process_basketball_emails(context: ContextTypes.DEFAULT_TYPE):
                     location_str = f" @ {assignment['location']} ({assignment['hall_code']})"
 
                 msg = (
-                    f"{prefix} <b>{assignment['type']}</b>: {assignment['liga']} \n"
+                    f"{check_game_conflict(datetime.datetime.strptime(assignment['date'] + ' ' + assignment['time'], '%d.%m.%Y %H:%M'))} {prefix} <b>{assignment['type']}</b>: {assignment['liga']} \n"
                     f"{assignment['teams']} \n"
-                    f"<b>{assignment['date']} {assignment['time']}</b> {location_str}\n\n"
+                    f"<b>{assignment['date']} {assignment['time']}</b> {location_str}\n"
+                    f""
                 )
                 
                 await context.bot.send_message(
