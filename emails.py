@@ -2,17 +2,11 @@ import re
 from consts import BASKETBALL_EMAILS
 
 def get_basketball_emails(service, max_results=10):
-    """Get basketball-related emails from Gmail from the last 15 minutes only."""
-    import datetime
+    """Get basketball-related emails from Gmail"""
 
     query = " OR ".join(f"from:{email}" for email in BASKETBALL_EMAILS)
 
-    now = datetime.datetime.utcnow()
-    since = now - datetime.timedelta(minutes=15)
-
-    after = since.strftime("%Y/%m/%d %H:%M:%S")
-
-    query = f"{query} after:{after}"
+    query = f"{query}"
 
     results = service.users().messages().list(
         userId='me', q=query, maxResults=max_results

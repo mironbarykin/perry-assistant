@@ -40,8 +40,11 @@ def format_event(event, cal_symbol, is_basketball):
             return None
         try:
             if len(raw) == 10:
-                return datetime.datetime.fromisoformat(raw + "T00:00:00+00:00")
-            return datetime.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+                return datetime.strptime(raw, "%Y-%m-%d")
+            try:
+                return datetime.fromisoformat(raw)
+            except Exception:
+                return datetime.fromisoformat(raw.replace("Z", "+00:00"))
         except Exception:
             return None
 
@@ -51,9 +54,14 @@ def format_event(event, cal_symbol, is_basketball):
     if all_day:
         time_str = ""
     else:
-        start_time = start_dt.strftime("%H:%M") if start_dt else "??:??"
-        end_time = end_dt.strftime("%H:%M") if end_dt else "??:??"
-        time_str = f"<b>{start_time}-{end_time}</b>"
+        start_time = start_dt.strftime("%H:%M") if start_dt else ""
+        end_time = end_dt.strftime("%H:%M") if end_dt else ""
+        if start_time and end_time:
+            time_str = f"<b>{start_time}-{end_time}</b>"
+        elif start_time:
+            time_str = f"<b>{start_time}</b>"
+        else:
+            time_str = ""
 
     address = ""
     if is_basketball and location:

@@ -7,9 +7,10 @@ from consts import GYM_CACHE_FILE
 def get_gym_address(gym_id):
     """Efficiently get gym address using local cache, scraping only if needed."""
 
-    cache = load_json(GYM_CACHE_FILE)
+    cache = load_json(GYM_CACHE_FILE, {'': ''})
 
-    if gym_id in cache:
+    gym_id = gym_id
+    if gym_id in cache.keys():
         return cache[gym_id]
 
     url = "https://www.basketball-bund.net/halleSearch.do?reqCode=list"
@@ -53,8 +54,8 @@ def get_gym_address(gym_id):
         for row in rows[1:]:
             cols = row.find_all("td")
             if len(cols) >= 5:
-                code = cols[1].get_text(strip=True)
-                if code.replace(" ", "") == gym_id.replace(" ", ""):
+                code = cols[1].get_text(strip=True).replace(" ", "")
+                if code == gym_id:
                     street = cols[2].get_text(strip=True)
                     plz = cols[3].get_text(strip=True)
                     city = cols[4].get_text(strip=True)

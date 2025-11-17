@@ -24,8 +24,8 @@ from logs import logger, LOGS_DIR
 from helpers import load_json, save_json
 from gyms import get_gym_address
 from emails import get_basketball_emails, get_email_content, parse_basketball_email
-from weather import get_weather, bike_advice
-from calendar import get_events_for_date, format_event, check_school_practice_gap
+from weather import bike_advice
+from events import format_event, check_school_practice_gap
 
 ## -- APISERVICES FUNCTIONS --
 
