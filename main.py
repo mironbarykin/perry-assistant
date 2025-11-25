@@ -450,13 +450,11 @@ async def process_basketball_emails(context: ContextTypes.DEFAULT_TYPE):
     try:
         service = get_gmail_service()
         processed_ids = load_json(STORED_EMAIL_IDS_FILE, [])
-        # Only keep last 10 checked emails in cache
-        processed_ids = processed_ids[-10:] if processed_ids else []
+        processed_ids = processed_ids[-100:] if processed_ids else []
 
         try:
             messages = get_basketball_emails(service)
         except HttpError as he:
-            # Handle Gmail API disabled / project not configured
             try:
                 err_text = ""
                 try:
@@ -479,9 +477,11 @@ async def process_basketball_emails(context: ContextTypes.DEFAULT_TYPE):
                 await global_error_notify(None, context, e)
             return
 
+        processed_set = set(processed_ids)
+
         for message_meta in messages:
             msg_id = message_meta.get('id')
-            if not msg_id or msg_id in processed_ids:
+            if not msg_id or msg_id in processed_set:
                 continue
                 
             content = get_email_content(service, msg_id)
@@ -489,7 +489,7 @@ async def process_basketball_emails(context: ContextTypes.DEFAULT_TYPE):
             
             if not assignments:
                 processed_ids.append(msg_id)
-                processed_ids = processed_ids[-10:]
+                processed_ids = processed_ids[-100:]
                 continue
 
             is_multiple = len(assignments) > 1
@@ -512,11 +512,13 @@ async def process_basketball_emails(context: ContextTypes.DEFAULT_TYPE):
                 await context.bot.send_message(
                     chat_id=MIRON_ID,
                     text=msg,
+                    disable_notification='⛔' in msg,
                     parse_mode=telegram.constants.ParseMode.HTML
                 )
             
             processed_ids.append(msg_id)
-            processed_ids = processed_ids[-10:]
+            processed_set.add(msg_id)
+            processed_ids = processed_ids[-100:]
             save_json(STORED_EMAIL_IDS_FILE, processed_ids)
             
     except Exception as e:

@@ -9,9 +9,9 @@
     - Modularizing components for easier maintenance.
 
 - Game gyms distance calculation.
+- No cache error handling.
 
 ## Dec. 2025
 
 - AI Integration 
     - AI chatbot to communicate with parents, for questions like, how is your school doing, when are the basketball games, etc.
-
