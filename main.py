@@ -15,7 +15,6 @@ from googleapiclient.errors import HttpError
 import html
 import shutil
 
-
 load_dotenv()
 
 # -- CUSTOM IMPORTS --
@@ -24,7 +23,7 @@ from logs import logger, LOGS_DIR
 from helpers import load_json, save_json
 from gyms import get_gym_address
 from emails import get_basketball_emails, get_email_content, parse_basketball_email
-from weather import bike_advice
+from services.weather import get_weather, bike_advice
 from events import format_event, check_school_practice_gap
 
 ## -- APISERVICES FUNCTIONS --
@@ -44,42 +43,6 @@ def get_gmail_service():
         with open(TOKEN_PICKLE, "rb") as token:
             creds = pickle.load(token)
     return build("gmail", "v1", credentials=creds)
-
-def get_weather(location: dict, target_dt: datetime.datetime) -> dict:
-    """Fetch weather data for a location and time."""
-    url = (
-        f"https://api.openweathermap.org/data/2.5/forecast?"
-        f"lat={location['lat']}&lon={location['lon']}"
-        f"&appid={OPENWEATHER_API_KEY}&units=metric"
-    )
-    data = requests.get(url).json()
-
-    if "list" not in data:
-        logger.error(f"OpenWeather error: {data}")
-        return {
-            "temp": None,
-            "wind_speed": None,
-            "wind_deg": None,
-            "rain": False,
-            "desc": f"API error: {data.get('message', 'unknown')}"
-        }
-
-    forecasts = data["list"]
-    target_ts = int(target_dt.timestamp())
-    chosen = min(forecasts, key=lambda f: abs(int(f["dt"]) - target_ts))
-
-    main = chosen["main"]
-    wind = chosen["wind"]
-    weather_desc = chosen["weather"][0]["description"].lower()
-
-    return {
-        "temp": main["temp"],
-        "wind_speed": wind["speed"],
-        "wind_deg": wind["deg"],
-        "rain": "rain" in weather_desc,
-        "desc": weather_desc,
-    }
-
 
 ## -- GOOGLE CALENDAR FUNCTIONS --
 

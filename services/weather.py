@@ -1,4 +1,39 @@
+from .consts import OPENWEATHER_API_KEY
 
+
+def get_weather(location: dict, target_dt: datetime.datetime) -> dict:
+    """Fetch weather data for a location and time."""
+    url = (
+        f"https://api.openweathermap.org/data/2.5/forecast?"
+        f"lat={location['lat']}&lon={location['lon']}"
+        f"&appid={OPENWEATHER_API_KEY}&units=metric"
+    )
+    data = requests.get(url).json()
+
+    if "list" not in data:
+        return {
+            "temp": None,
+            "wind_speed": None,
+            "wind_deg": None,
+            "rain": False,
+            "desc": f"API error: {data.get('message', 'unknown')}"
+        }
+
+    forecasts = data["list"]
+    target_ts = int(target_dt.timestamp())
+    chosen = min(forecasts, key=lambda f: abs(int(f["dt"]) - target_ts))
+
+    main = chosen["main"]
+    wind = chosen["wind"]
+    weather_desc = chosen["weather"][0]["description"].lower()
+
+    return {
+        "temp": main["temp"],
+        "wind_speed": wind["speed"],
+        "wind_deg": wind["deg"],
+        "rain": "rain" in weather_desc,
+        "desc": weather_desc,
+    }
 
 def wind_direction_effect(wind_deg: float, route_angle: int = 30) -> str:
     """Return tailwind/headwind/crosswind based on wind coming from wind_deg."""
