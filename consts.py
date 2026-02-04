@@ -24,6 +24,8 @@ STORED_EMAIL_IDS_FILE = os.path.join(DATA_DIR, 'processed_emails.json')
 NOTIFICATION_FILE = os.path.join(DATA_DIR, 'notification_times.json')
 PARENTS_FILE = os.path.join(DATA_DIR, 'parents.json')
 GYM_CACHE_FILE = os.path.join(DATA_DIR, 'gyms_cache.json')
+SCHOOL_ABSENCE_FILE = os.path.join(DATA_DIR, "school_absence.json")
+SCHOOL_TIMETABLE_FILE = os.path.join(DATA_DIR, "school_timetable.json")
 
 ## -- OTHER
 

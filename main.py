@@ -537,7 +537,9 @@ def ensure_persistent_files():
         'notification_times.json': './notification_times.json',
         'parents.json': './parents.json',
         'processed_emails.json': './processed_emails.json',
-        'gyms_cache.json': './gyms_cache.json'
+        'gyms_cache.json': './gyms_cache.json',
+        'school_timetable.json': './school_timetable.json',
+        'school_absences.json': './school_absences.json',
     }
 
     for dst_name, src_path in defaults.items():
