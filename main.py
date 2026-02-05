@@ -22,19 +22,19 @@ from consts import *
 from logs import logger, LOGS_DIR
 from helpers import load_json, save_json
 from gyms import get_gym_address
-from emails import get_basketball_emails, get_email_content, parse_basketball_email
+from services.referee_email import get_basketball_emails, get_email_content, parse_referee_email
 from services.weather import get_weather, bike_advice
-from events import format_event, check_school_practice_gap
-
-## -- APISERVICES FUNCTIONS --
-
-def get_calendar_service():
-    """Getting Google Calendar API service."""
-    creds = None
-    if os.path.exists(TOKEN_PICKLE):
-        with open(TOKEN_PICKLE, "rb") as token:
-            creds = pickle.load(token)
-    return build("calendar", "v3", credentials=creds)
+from events import check_school_practice_gap
+from services.calendar import (
+    get_events_for_date,
+    check_game_conflict,
+    create_referee_event,
+    update_referee_event,
+    cancel_referee_event,
+    find_existing_event,
+    check_availability,
+    update_event_map,
+)
 
 def get_gmail_service():
     """Getting Gmail API service."""
@@ -43,38 +43,6 @@ def get_gmail_service():
         with open(TOKEN_PICKLE, "rb") as token:
             creds = pickle.load(token)
     return build("gmail", "v1", credentials=creds)
-
-## -- GOOGLE CALENDAR FUNCTIONS --
-
-def get_all_calendars(service):
-    """Get all calendars from the Google Calendar API."""
-    return service.calendarList().list().execute().get("items", [])
-
-def get_events_for_date(target_date: datetime.datetime):
-    """Get all events for a specific date."""
-    service = get_calendar_service()
-    start = target_date.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=datetime.UTC).isoformat()
-    end = target_date.replace(hour=23, minute=59, second=59, microsecond=0, tzinfo=datetime.UTC).isoformat()
-
-    events_all = []
-    for cal in get_all_calendars(service):
-        cal_symbol = cal.get("summary", "?")[0]
-        is_basketball = "basketball" in cal.get("summary", "").lower()
-
-        events = service.events().list(
-            calendarId=cal["id"], timeMin=start, timeMax=end,
-            singleEvents=True, orderBy="startTime"
-        ).execute().get("items", [])
-
-        for e in events:
-            event_tuple = format_event(e, cal_symbol, is_basketball)
-            if event_tuple[3]:
-                if event_tuple[0] and event_tuple[0].date() == target_date.date():
-                    events_all.append(event_tuple)
-            else:
-                events_all.append(event_tuple)
-
-    return sorted(events_all, key=lambda x: (not x[3], x[0] is None, x[0]))
 
 def get_day_events_text(date: datetime.datetime, label="Events") -> str:
     """Format events for a given day as text."""
@@ -373,39 +341,13 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     error = getattr(context, "error", None)
     await global_error_notify(update, context, error if error else Exception("Unknown error"))
 
-# -- EMAIL FUNCTIONS --
-
-def check_game_conflict(new_game_dt: datetime.datetime):
-    """Check schedule for conflicts with a new game on the same day."""
-    events = get_events_for_date(new_game_dt)
-    game_times = [e[0] for e in events if e[0] and ("game" in e[1].lower() or "practice" in e[1].lower())]
-
-    # Ensure all datetimes are naive or all are aware (convert to naive in UTC)
-    def to_naive(dt):
-        if dt.tzinfo is not None:
-            return dt.astimezone(datetime.timezone.utc).replace(tzinfo=None)
-        return dt
-
-    new_game_dt_naive = to_naive(new_game_dt)
-    game_times_naive = [to_naive(dt) for dt in game_times]
-
-    if not game_times_naive:
-        return "✅"
-
-    min_diff = None
-    for dt in game_times_naive:
-        diff_hours = abs((dt - new_game_dt_naive).total_seconds()) / 3600
-        if min_diff is None or diff_hours < min_diff:
-            min_diff = diff_hours
-
-    if min_diff is not None:
-        if min_diff < 2:
-            return "⛔"
-        elif 2 <= min_diff < 3:
-            return "⚠️"
-        else:
-            return "🟢"
-    return "❔"
+async def send_referee_notification(context: ContextTypes.DEFAULT_TYPE, text: str, disable_notification: bool = False):
+    await context.bot.send_message(
+        chat_id=MIRON_ID,
+        text=text,
+        disable_notification=disable_notification,
+        parse_mode=telegram.constants.ParseMode.HTML,
+    )
 
 async def process_basketball_emails(context: ContextTypes.DEFAULT_TYPE):
     """Process new basketball emails and send notifications."""
@@ -447,7 +389,7 @@ async def process_basketball_emails(context: ContextTypes.DEFAULT_TYPE):
                 continue
                 
             content = get_email_content(service, msg_id)
-            assignments = parse_basketball_email(content)
+            assignments = parse_referee_email(content)
             
             if not assignments:
                 processed_ids.append(msg_id)
@@ -459,24 +401,115 @@ async def process_basketball_emails(context: ContextTypes.DEFAULT_TYPE):
             
             for assignment in assignments:
                 location_str = ""
-                if assignment['hall_code'] == assignment['location']:
-                    location_str = f" @ {get_gym_address(assignment['hall_code'])} ({assignment['hall_code']})"
-                else:
-                    location_str = f" @ {assignment['location']} ({assignment['hall_code']})"
+                if assignment.get("hall_code"):
+                    if assignment.get("hall_code") == assignment.get("location"):
+                        location_str = f" @ {get_gym_address(assignment['hall_code'])} ({assignment['hall_code']})"
+                    else:
+                        location_str = f" @ {assignment.get('location')} ({assignment.get('hall_code')})"
 
-                msg = (
-                    f"{check_game_conflict(datetime.datetime.strptime(assignment['date'] + ' ' + assignment['time'], '%d.%m.%Y %H:%M'))} {prefix} <b>{assignment['type']}</b>: {assignment['liga']} \n"
-                    f"{assignment['teams']} \n"
-                    f"<b>{assignment['date']} {assignment['time']}</b> {location_str}\n"
-                    f""
-                )
-                
-                await context.bot.send_message(
-                    chat_id=MIRON_ID,
-                    text=msg,
-                    disable_notification='⛔' in msg,
-                    parse_mode=telegram.constants.ParseMode.HTML
-                )
+                assignment_type = assignment.get("type")
+
+                if assignment_type == "ANSETZUNG":
+                    event_id = create_referee_event(assignment)
+                    conflict_icon = check_game_conflict(
+                        datetime.datetime.strptime(
+                            assignment["date"] + " " + assignment["time"],
+                            "%d.%m.%Y %H:%M",
+                        )
+                    )
+                    msg = (
+                        f"{conflict_icon} {prefix} <b>ANSETZUNG</b>: {assignment.get('liga')} \n"
+                        f"{assignment.get('teams')} \n"
+                        f"<b>{assignment.get('date')} {assignment.get('time')}</b> {location_str}\n"
+                    )
+                    await send_referee_notification(context, msg, disable_notification="⛔" in msg)
+
+                elif assignment_type == "UMBESETZUNG":
+                    available, reason = check_availability(assignment)
+                    status = "✅ Available" if available else "⛔ Not available"
+                    if reason:
+                        status = f"{status} — {reason}"
+                    msg = (
+                        f"{prefix} <b>UMBESetzung</b>: {assignment.get('liga')} \n"
+                        f"{assignment.get('teams')} \n"
+                        f"<b>{assignment.get('date')} {assignment.get('time')}</b> {location_str}\n"
+                        f"{status}"
+                    )
+                    await send_referee_notification(context, msg, disable_notification=not available)
+
+                elif assignment_type == "VERLEGUNG":
+                    event_id, _ = find_existing_event(assignment)
+                    available, reason = check_availability(assignment)
+                    warn = ""
+                    if not available:
+                        warn = f"\n⚠️ {reason}"
+                    if event_id:
+                        update_referee_event(event_id, assignment)
+                        if assignment.get("old_date") and assignment.get("old_time"):
+                            old_assignment = {
+                                "date": assignment.get("old_date"),
+                                "time": assignment.get("old_time"),
+                                "teams": assignment.get("teams"),
+                                "hall_code": assignment.get("old_hall_code") or assignment.get("hall_code"),
+                            }
+                        else:
+                            old_assignment = None
+                        update_event_map(old_assignment, assignment, event_id)
+                        msg = (
+                            f"{prefix} <b>VERLEGUNG</b>: {assignment.get('liga')} \n"
+                            f"{assignment.get('teams')} \n"
+                            f"<b>{assignment.get('date')} {assignment.get('time')}</b> {location_str}{warn}"
+                        )
+                    else:
+                        msg = (
+                            f"{prefix} <b>VERLEGUNG</b> (event not found): {assignment.get('liga')} \n"
+                            f"{assignment.get('teams')} \n"
+                            f"<b>{assignment.get('date')} {assignment.get('time')}</b> {location_str}{warn}"
+                        )
+                    await send_referee_notification(context, msg, disable_notification=False)
+
+                elif assignment_type in {"ABSAGE", "RUECKZUG"}:
+                    event_id, _ = find_existing_event(assignment)
+                    if event_id:
+                        cancel_referee_event(event_id, assignment)
+                        msg = (
+                            f"{prefix} <b>{assignment_type}</b>: {assignment.get('liga')} \n"
+                            f"{assignment.get('teams')} \n"
+                            f"<b>{assignment.get('date')} {assignment.get('time')}</b> {location_str}\n"
+                            f"Marked as cancelled."
+                        )
+                    else:
+                        msg = (
+                            f"{prefix} <b>{assignment_type}</b> (event not found): {assignment.get('liga')} \n"
+                            f"{assignment.get('teams')} \n"
+                            f"<b>{assignment.get('date')} {assignment.get('time')}</b> {location_str}"
+                        )
+                    await send_referee_notification(context, msg, disable_notification=False)
+
+                elif assignment_type == "AENDERUNG":
+                    event_id, _ = find_existing_event(assignment)
+                    if event_id:
+                        update_referee_event(event_id, assignment)
+                        msg = (
+                            f"{prefix} <b>ANSETZUNG GEÄNDERT</b>: {assignment.get('liga')} \n"
+                            f"{assignment.get('teams')} \n"
+                            f"<b>{assignment.get('date')} {assignment.get('time')}</b> {location_str}"
+                        )
+                    else:
+                        msg = (
+                            f"{prefix} <b>ANSETZUNG GEÄNDERT</b> (event not found): {assignment.get('liga')} \n"
+                            f"{assignment.get('teams')} \n"
+                            f"<b>{assignment.get('date')} {assignment.get('time')}</b> {location_str}"
+                        )
+                    await send_referee_notification(context, msg, disable_notification=False)
+
+                else:
+                    msg = (
+                        f"{prefix} <b>{assignment_type}</b>: {assignment.get('liga')} \n"
+                        f"{assignment.get('teams')} \n"
+                        f"<b>{assignment.get('date')} {assignment.get('time')}</b> {location_str}"
+                    )
+                    await send_referee_notification(context, msg, disable_notification=False)
             
             processed_ids.append(msg_id)
             processed_set.add(msg_id)
@@ -499,6 +532,7 @@ def ensure_persistent_files():
         'notification_times.json': './notification_times.json',
         'parents.json': './parents.json',
         'processed_emails.json': './processed_emails.json',
+        'referee_events.json': './referee_events.json',
         'gyms_cache.json': './gyms_cache.json',
         'school_timetable.json': './school_timetable.json',
         'school_absences.json': './school_absences.json',

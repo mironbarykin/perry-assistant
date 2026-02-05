@@ -13,7 +13,10 @@ PEOPLE = ['@barykinmiron', '@barykinamarina', '@bar_and_bar']
 ## -- GOOGLE
 CREDENTIALS_FILE = os.path.join(DATA_DIR, 'google_calendar_benny_access.json')
 TOKEN_PICKLE = os.path.join(DATA_DIR, 'token.pickle')
-SCOPES = ["https://www.googleapis.com/auth/calendar.readonly", "https://www.googleapis.com/auth/gmail.readonly"]
+SCOPES = [
+    "https://www.googleapis.com/auth/calendar",
+    "https://www.googleapis.com/auth/gmail.readonly",
+]
 
 HOME = {"lat": 51.261838, "lon": 6.677088}
 SCHOOL = {"lat": 51.305463, "lon": 6.743720}
@@ -21,6 +24,7 @@ BASKETBALL_EMAILS = ["*@uportal-wbv.de", "noreply@basketball-bund.net", "bekettg
 
 ## -- FILES
 STORED_EMAIL_IDS_FILE = os.path.join(DATA_DIR, 'processed_emails.json')
+REFEREE_EVENTS_FILE = os.path.join(DATA_DIR, 'referee_events.json')
 NOTIFICATION_FILE = os.path.join(DATA_DIR, 'notification_times.json')
 PARENTS_FILE = os.path.join(DATA_DIR, 'parents.json')
 GYM_CACHE_FILE = os.path.join(DATA_DIR, 'gyms_cache.json')
