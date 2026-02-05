@@ -1,6 +1,5 @@
 from .consts import OPENWEATHER_API_KEY
 
-
 def get_weather(location: dict, target_dt: datetime.datetime) -> dict:
     """Fetch weather data for a location and time."""
     url = (
@@ -35,79 +34,69 @@ def get_weather(location: dict, target_dt: datetime.datetime) -> dict:
         "desc": weather_desc,
     }
 
-def wind_direction_effect(wind_deg: float, route_angle: int = 30) -> str:
-    """Return tailwind/headwind/crosswind based on wind coming from wind_deg."""
-    blow_to = (wind_deg + 180) % 360
-    diff = abs(blow_to - route_angle)
-    diff = min(diff, 360 - diff)
-
-    if diff <= 45:
-        return "tailwind"
-    elif diff >= 135:
-        return "headwind"
-    else:
-        return "crosswind"
-
-def bike_advice(weather: dict, wind_deg=None, route_angle=30) -> str:
+def weather_message(weather: dict, route_angle=30) -> str:
     """Evaluate biking conditions and return advice."""
     if not weather or weather.get("temp") is None:
-        return "⚫ Weather data unavailable, impossible to use bike 🚲"
+        return "⚫ Weather data unavailable!"
 
     temp = weather.get("temp")
     wind = weather.get("wind_speed")
+    wind_deg = weather.get("wind_deg") if wind_deg is None else wind_deg
     rain = weather.get("rain")
 
-    score = 0  # lower is better
+    score = 0
 
-    # --- Temperature evaluation ---
     if temp < 0:
         score += 3
-        temp_msg = "Too cold ❄️"
-    elif temp > 35:
+        temp_msg = f"T-{temp}°C ❄️"
+    elif temp > 30:
         score += 3
-        temp_msg = "Too hot 🔥"
-    elif 0 <= temp < 10 or 30 < temp <= 35:
+        temp_msg = f"T-{temp}°C 🔥"
+    elif 0 <= temp < 10 or 22 < temp <= 30:
         score += 1
-        temp_msg = "Temperature is a bit extreme 🌡️"
+        temp_msg = f"T-{temp}°C 🌡️"
     else:
-        temp_msg = "Temperature is good 👍"
+        temp_msg = f"T-{temp}°C 👍"
 
-    temp_msg += f" ({temp}°C)"
-
-    # --- Wind direction evaluation ---
     if wind is None:
-        wind_msg = "Wind data unavailable 🌬️"
-    else:            
+        wind_msg = "No data 💨"
+    else:
+        diff = None
+
         if wind_deg is not None:
-            effect = wind_direction_effect(wind_deg, route_angle)
-            if effect == "tailwind":
-                score -= 1  # makes biking easier
-                wind_msg = "👍 Tailwind"
-            elif effect == "headwind":
-                score += 1  # makes biking harder
-                wind_msg = "<b>👎 Headwind</b>"
+            blow_to = (wind_deg + 180) % 360
+            diff = abs(blow_to - route_angle)
+            diff = min(diff, 360 - diff)
+            if diff <= 45:
+                wind_msg = f"Tailwind ({wind} m/s) 👍"
+                score -= 1
+            elif diff >= 135:
+                wind_msg = f"<b>Headwind ({wind} m/s) 👎</b>"
+                if wind > 12:
+                    score += 2
+                elif wind > 2:
+                    score += 1  
+                score += 1
             else:
-                wind_msg = "👈 Crosswind"
+                if wind > 12:
+                    score += 2
+                if wind > 5.5:
+                    score += 1
+                wind_msg = f"Crosswind ({wind} m/s) 💨"
         else:
-            wind_msg = "💨 Wind"
-
-        if wind > 25:
-            score += 3
-        elif 15 < wind <= 25:
-            score += 2
-        elif 5 < wind <= 15:
-            score += 1
-
-        wind_msg += f" ({wind} m/s)"
-
-    # --- Rain evaluation ---
+            if wind > 12:
+                score += 2
+            if wind > 5.5:
+                score += 1
+            
+            wind_msg = f"Wind ({wind} m/s) 💨"
+        
     if rain:
         score += 2
         rain_msg = "🌧️ Rainy, <b>take rain gear ☔</b>"
     else:
-        rain_msg = "☀️ No rain"
+        rain_msg = "😎"
 
-    # --- Overall emoji based on score ---
     if score <= 0:
         emoji = "🟢"
     elif 1 <= score <= 2:
@@ -116,7 +105,7 @@ def bike_advice(weather: dict, wind_deg=None, route_angle=30) -> str:
         emoji = "🟠"
     elif 5 <= score <= 6:
         emoji = "🔴"
-    else:  # score >= 7
+    else:
         emoji = "⚫"
 
     return f"{emoji} {temp_msg} {wind_msg} {rain_msg}"

@@ -129,9 +129,8 @@ async def send_morning_message(context: ContextTypes.DEFAULT_TYPE):
         home_weather = get_weather(HOME, target_home)
         school_weather = get_weather(SCHOOL, school_end) if school_end else None
 
-        home_advice = bike_advice(home_weather)
-        school_advice = bike_advice(school_weather) if school_weather else "No school today."
-
+        home_advice = weather_message(home_weather)
+        school_advice = weather_message(school_weather) if school_weather else "No school today."
         gap_warning = check_school_practice_gap(events)
 
         msg_lines = [
