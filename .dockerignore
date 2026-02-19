@@ -1,0 +1,13 @@
+.git
+.gitignore
+.env
+data/
+__pycache__/
+*/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+*.tar
+login_failed.png
+looking_for_tbody.png
