@@ -31,6 +31,17 @@ def build_application(services: AppServices) -> Application:
     app.add_handler(CommandHandler("absences", absences.absences_all))
     app.add_handler(CommandHandler("excuse", absences.excuse))
 
+    published_conv = ConversationHandler(
+        entry_points=[CommandHandler("published", admin.published_start)],
+        states={
+            admin.PUBLISH_STATE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, admin.published_send),
+            ]
+        },
+        fallbacks=[],
+    )
+    app.add_handler(published_conv)
+
     set_time_conv = ConversationHandler(
         entry_points=[CommandHandler("settime", common.settime)],
         states={

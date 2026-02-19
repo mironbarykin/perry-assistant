@@ -28,11 +28,15 @@ async def start(update: Update, context: CallbackContext) -> None:
             parents.append(user.id)
             write_json(services.config.parents_file, parents)
 
+    command_text = "Commands: /today /tomorrow /weekend /absence /absences /excuse"
+    if is_admin:
+        command_text += " /published"
+
     await update.message.reply_text(
         (
             "Welcome to Perry.\n"
             "Use /settime to configure daily notifications.\n"
-            "Commands: /today /tomorrow /weekend /absence /absences /excuse"
+            f"{command_text}"
         ),
         reply_markup=build_main_keyboard(is_admin),
     )
@@ -152,4 +156,3 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
     if text == "BACK":
         await update.message.reply_text("Ok👌", reply_markup=build_main_keyboard(is_admin))
         return
-

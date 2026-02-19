@@ -50,4 +50,4 @@ def test_excusable_absences_today_or_logic(app_config):
 
     excusable = service.get_excusable_absences_today(now=monday)
     subjects = sorted(item.subject for item in excusable)
-    assert subjects == ["SW", "M"]
+    assert subjects == ["M", "SW"]
