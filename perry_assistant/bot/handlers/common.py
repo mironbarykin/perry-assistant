@@ -3,7 +3,7 @@ from __future__ import annotations
 from telegram import Update
 from telegram.ext import CallbackContext, ConversationHandler
 
-from perry_assistant.bot.keyboards import build_main_keyboard
+from perry_assistant.bot.keyboards import build_main_keyboard, build_schedule_keyboard
 from perry_assistant.domain.types import AppServices
 from perry_assistant.storage.json_store import read_json, write_json
 
@@ -32,7 +32,7 @@ async def start(update: Update, context: CallbackContext) -> None:
         (
             "Welcome to Perry.\n"
             "Use /settime to configure daily notifications.\n"
-            "Commands: /today /tomorrow /weekend /absences /absence /excuse"
+            "Commands: /today /tomorrow /weekend /absence /absences /excuse"
         ),
         reply_markup=build_main_keyboard(is_admin),
     )
@@ -80,46 +80,76 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
     if not update.message:
         return
 
+    services = get_services(context)
+    user = update.effective_user
     text = update.message.text.strip().upper()
+    is_admin = bool(user and user.id == services.config.miron_id)
+
+    if text in {"ABSENCES", "EXCUSABLE TODAY", "ALL ABSENCES", "I AM ABSENT"} and not is_admin:
+        await update.message.reply_text("Access denied. Admin only.")
+        return
+
+    if text == "ABSENCES":
+        from perry_assistant.bot.handlers.absences import absences_menu
+
+        await absences_menu(update, context)
+        return
+
+    if text == "EXCUSABLE TODAY":
+        from perry_assistant.bot.handlers.absences import absences_today
+
+        await absences_today(update, context)
+        return
+
+    if text == "ALL ABSENCES":
+        from perry_assistant.bot.handlers.absences import absences_all
+
+        await absences_all(update, context)
+        return
+
+    if text == "I AM ABSENT":
+        from perry_assistant.bot.handlers.absences import absences_absent
+
+        await absences_absent(update, context)
+        return
+
+    if text == "SCHEDULE":
+        await update.message.reply_text("Ok👌", reply_markup=build_schedule_keyboard())
+        return
+    
     if text == "TODAY":
         from perry_assistant.bot.handlers.schedule import today
         await today(update, context)
         return
-    if text == "SCHEDULE":
-        from perry_assistant.bot.keyboards import build_schedule_keyboard
-        await update.message.reply_text("Ok👌", reply_markup=build_schedule_keyboard())
-        return
+
     if text == "THIS WEEKEND":
         from perry_assistant.bot.handlers.schedule import this_weekend
+
         await this_weekend(update, context)
         return
+
     if text == "NEXT WEEKEND":
         from perry_assistant.bot.handlers.schedule import next_weekend
+
         await next_weekend(update, context)
         return
+
     if text == "OTHER":
         from perry_assistant.bot.handlers.schedule import other_weekend
+
         await other_weekend(update, context)
         return
-    if text == "BACK":
-        from perry_assistant.bot.keyboards import build_main_keyboard
-        services = get_services(context)
-        user = update.effective_user
-        is_admin = user and user.id == services.config.miron_id
-        await update.message.reply_text("Ok👌", reply_markup=build_main_keyboard(is_admin))
-        return
-    services = get_services(context)
-    user = update.effective_user
-    is_admin = user and user.id == services.config.miron_id
+
     if text == "EMAILS":
         if not is_admin:
+            await update.message.reply_text("Admin only.")
             return
         from perry_assistant.bot.handlers.referee import emails
+
         await emails(update, context)
         return
-    if text == "ABSENCES":
-        if not is_admin:
-            return
-        from perry_assistant.bot.handlers.absences import absences
-        await absences(update, context)
+
+    if text == "BACK":
+        await update.message.reply_text("Ok👌", reply_markup=build_main_keyboard(is_admin))
+        return
 

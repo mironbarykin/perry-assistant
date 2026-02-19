@@ -28,7 +28,7 @@ def build_application(services: AppServices) -> Application:
     app.add_handler(CommandHandler("parents", admin.parents))
 
     app.add_handler(CommandHandler("absence", absences.absence))
-    app.add_handler(CommandHandler("absences", absences.absences))
+    app.add_handler(CommandHandler("absences", absences.absences_all))
     app.add_handler(CommandHandler("excuse", absences.excuse))
 
     set_time_conv = ConversationHandler(
@@ -53,4 +53,3 @@ def build_application(services: AppServices) -> Application:
         morning_callback=schedule.send_morning_message_job,
     )
     return app
-

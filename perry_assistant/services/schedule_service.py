@@ -14,9 +14,7 @@ def check_school_practice_gap(events: list[EventView]) -> str | None:
         item.end for item in events if item.end is not None and "school" in clean_text(item.line)
     ]
     practice_start_times = [
-        item.start
-        for item in events
-        if item.start is not None and "practice" in clean_text(item.line)
+        item.start for item in events if item.start is not None and "practice" in clean_text(item.line)
     ]
 
     if not school_end_times or not practice_start_times:
@@ -35,59 +33,47 @@ class ScheduleService:
         self._calendar = calendar_client
         self._weather = weather_client
 
-    def day_events_text(self, date: dt.datetime, label: str = "events") -> str:
+    def day_events_text(self, date: dt.datetime, label: str = "events", is_admin: bool = True) -> str:
         events = self._calendar.get_events_for_date(date)
-        if not events:
+        visible_events = self._visible_events(events, is_admin=is_admin)
+        if not visible_events:
             return f"No {label} found."
-        date_str = date.strftime('%A, %Y-%m-%d')
-        return f"{date_str}\n" + "\n".join(item.line for item in events)
 
-    def today_message(self, user_id: int, is_admin: bool = False) -> str:
-        now = dt.datetime.now(dt.UTC)
-        events = self._calendar.get_events_for_date(now)
-        filtered_events = []
-        for event in events:
-            cal_symbol = event.line[0] if event.line else "?"
-            if not is_admin and cal_symbol.upper() == "P":
-                continue
-            filtered_events.append(event)
-        filtered_events = sorted(filtered_events, key=lambda item: (not item.is_all_day, item.start is None, item.start))
-        if not filtered_events:
-            return "No events found."
-        lines = []
-        for event in filtered_events:
-            if event.is_all_day:
-                lines.append(f"📅 [all-day] {event.line[10:] if event.line.startswith('[all-day]') else event.line}")
-            else:
-                lines.append(f"📅 {event.line}")
-        date_str = now.strftime('%A, %Y-%m-%d')
+        date_str = date.strftime("%A, %Y-%m-%d")
+        lines = [self._display_line(item) for item in visible_events]
         return f"{date_str}\n" + "\n".join(lines)
 
-    def tomorrow_message(self) -> str:
-        target = dt.datetime.now(dt.UTC) + dt.timedelta(days=1)
-        date_str = target.strftime('%A, %Y-%m-%d')
-        return f"{date_str}\n{self.day_events_text(target, 'tomorrow events')}"
+    def today_message(self, is_admin: bool = False) -> str:
+        now = dt.datetime.now(dt.UTC)
+        return self.day_events_text(now, label="events", is_admin=is_admin)
 
-    def weekend_message(self) -> str:
+    def tomorrow_message(self, is_admin: bool = False) -> str:
+        target = dt.datetime.now(dt.UTC) + dt.timedelta(days=1)
+        return self.day_events_text(target, label="tomorrow events", is_admin=is_admin)
+
+    def weekend_message(self, is_admin: bool = False) -> str:
         now = dt.datetime.now(dt.UTC)
         saturday = now + dt.timedelta((5 - now.weekday()) % 7)
         sunday = saturday + dt.timedelta(days=1)
-        sat_events = [item.line for item in self._calendar.get_events_for_date(saturday) if item.is_basketball]
-        sun_events = [item.line for item in self._calendar.get_events_for_date(sunday) if item.is_basketball]
-        sat_text = "\n".join(sat_events) if sat_events else "No events"
-        sun_text = "\n".join(sun_events) if sun_events else "No events"
-        sat_date = saturday.strftime('%A, %Y-%m-%d')
-        sun_date = sunday.strftime('%A, %Y-%m-%d')
+
+        sat_events = self._visible_events(self._calendar.get_events_for_date(saturday), is_admin=is_admin)
+        sun_events = self._visible_events(self._calendar.get_events_for_date(sunday), is_admin=is_admin)
+
+        sat_text = "\n".join(self._display_line(item) for item in sat_events if item.is_basketball)
+        sun_text = "\n".join(self._display_line(item) for item in sun_events if item.is_basketball)
+
+        sat_date = saturday.strftime("%A, %Y-%m-%d")
+        sun_date = sunday.strftime("%A, %Y-%m-%d")
         return (
             f"Weekend basketball events ({saturday.day}-{sunday.day})\n"
-            f"Saturday: {sat_date}\n{sat_text}\n\n"
-            f"Sunday: {sun_date}\n{sun_text}"
+            f"Saturday: {sat_date}\n{sat_text or 'No events'}\n\n"
+            f"Sunday: {sun_date}\n{sun_text or 'No events'}"
         )
 
     def morning_digest(self, home_coords: dict[str, float], school_coords: dict[str, float]) -> str:
         today = dt.datetime.now(BERLIN_TZ)
         events = self._calendar.get_events_for_date(today)
-        events_text = "\n".join(item.line for item in events) if events else "No events"
+        events_text = "\n".join(self._display_line(item) for item in events) if events else "No events"
         lines = [f"Good morning. Schedule for today:\n{events_text}"]
 
         school_events = [event for event in events if "school" in clean_text(event.line)]
@@ -106,5 +92,25 @@ class ScheduleService:
         gap_warning = check_school_practice_gap(events)
         if gap_warning:
             lines.append(gap_warning)
+
         return "\n\n".join(lines)
+
+    @staticmethod
+    def _display_line(event: EventView) -> str:
+        if event.is_all_day:
+            return event.line if event.line.startswith("all-day - ") else f"all-day - {event.line}"
+        return event.line
+
+    @staticmethod
+    def _visible_events(events: list[EventView], is_admin: bool) -> list[EventView]:
+        if is_admin:
+            return sorted(events, key=lambda item: (not item.is_all_day, item.start is None, item.start))
+
+        visible: list[EventView] = []
+        for item in events:
+            line = item.line.strip()
+            if not item.is_all_day and line[:1].upper() == "P":
+                continue
+            visible.append(item)
+        return sorted(visible, key=lambda item: (not item.is_all_day, item.start is None, item.start))
 

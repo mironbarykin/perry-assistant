@@ -15,14 +15,23 @@ class AbsenceService:
     def add_absence(self, date: str, subjects: list[str]) -> list[AbsenceRecord]:
         self._validate_date(date)
         records = self._load_absences()
+        existing_unexcused = {
+            (item.date, item.subject.strip().lower())
+            for item in records
+            if not item.excused
+        }
         added: list[AbsenceRecord] = []
         for subject in subjects:
             cleaned_subject = subject.strip()
             if not cleaned_subject:
                 continue
+            key = (date, cleaned_subject.lower())
+            if key in existing_unexcused:
+                continue
             record = AbsenceRecord(date=date, subject=cleaned_subject, excused=False)
             records.append(record)
             added.append(record)
+            existing_unexcused.add(key)
         self._save_absences(records)
         return added
 
@@ -33,12 +42,12 @@ class AbsenceService:
         now = now or dt.datetime.now()
         weekday = now.weekday()
         timetable = self.get_school_timetable()
-        today_subjects = set(timetable.get(weekday, []))
+        today_subjects = {subject.strip().lower() for subject in timetable.get(weekday, [])}
 
         excusable: list[AbsenceRecord] = []
         for item in self.get_unexcused_absences():
             absence_date = dt.datetime.strptime(item.date, "%Y-%m-%d")
-            if absence_date.weekday() == weekday and item.subject in today_subjects:
+            if absence_date.weekday() == weekday or item.subject.strip().lower() in today_subjects:
                 excusable.append(item)
         return excusable
 
@@ -88,4 +97,3 @@ class AbsenceService:
     @staticmethod
     def _validate_date(date: str) -> None:
         dt.datetime.strptime(date, "%Y-%m-%d")
-

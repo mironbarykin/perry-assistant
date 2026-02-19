@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import datetime as dt
 import logging
@@ -8,6 +8,7 @@ from typing import Any
 from urllib.parse import quote_plus
 
 from googleapiclient.discovery import build
+from telegram.helpers import escape_markdown
 
 from perry_assistant.config import AppConfig
 from perry_assistant.constants import BERLIN_TZ, REFEREE_CALENDAR_NAME
@@ -15,6 +16,9 @@ from perry_assistant.domain.models import EventView, RefereeAssignment
 
 
 logger = logging.getLogger(__name__)
+
+RSO_MAP_QUERY = "Goerresstrasse 6, 40670 Meerbusch"
+SMG_MAP_QUERY = "Moenkesweg 58, 40670 Meerbusch"
 
 
 def parse_google_datetime(raw: str | None) -> dt.datetime | None:
@@ -91,7 +95,7 @@ class CalendarClient:
         return sorted(events_all, key=lambda item: (not item.is_all_day, item.start is None, item.start))
 
     def _format_event(self, event: dict[str, Any], cal_symbol: str, is_basketball: bool) -> EventView:
-        summary = event.get("summary", "No Title")
+        summary = escape_markdown(event.get("summary", "No Title"), version=1)
         start_raw = event.get("start", {}).get("dateTime", event.get("start", {}).get("date"))
         end_raw = event.get("end", {}).get("dateTime", event.get("end", {}).get("date"))
         location = event.get("location")
@@ -101,20 +105,24 @@ class CalendarClient:
         end_dt = parse_google_datetime(end_raw)
 
         if is_all_day:
-            return EventView(start=start_dt, line=f"[all-day] {summary}", is_basketball=is_basketball, is_all_day=True, end=end_dt)
+            return EventView(
+                start=start_dt,
+                line=f"all-day - {summary}",
+                is_basketball=is_basketball,
+                is_all_day=True,
+                end=end_dt,
+            )
 
         start_text = start_dt.strftime("%H:%M") if start_dt else ""
         end_text = end_dt.strftime("%H:%M") if end_dt else ""
-        if start_text and end_text:
-            time_text = f"{start_text}-{end_text}"
-        else:
-            time_text = start_text
-
+        time_text = f"{start_text}-{end_text}" if start_text and end_text else start_text
 
         address = ""
         if location:
-            gmaps_url = f"https://maps.google.com/?q={quote_plus(location)}"
-            address = f" [📍Location]({gmaps_url})"
+            label, map_query = _location_link_parts(location)
+            escaped_label = escape_markdown(label, version=1)
+            gmaps_url = f"https://maps.google.com/?q={quote_plus(map_query)}"
+            address = f" @ [{escaped_label}]({gmaps_url})"
 
         line = f"{cal_symbol} {time_text} - {summary}{address}".strip()
         return EventView(start=start_dt, line=line, is_basketball=is_basketball, is_all_day=False, end=end_dt)
@@ -197,6 +205,29 @@ class CalendarClient:
         return updated.get("id")
 
 
+def _location_link_parts(location: str) -> tuple[str, str]:
+    normalized = _normalize_location(location)
+    if "goerresstrasse" in normalized or "rso" in normalized:
+        return "RSO", RSO_MAP_QUERY
+    if "moenkesweg" in normalized or "monkesweg" in normalized or "smg" in normalized:
+        return "SMG", SMG_MAP_QUERY
+    return location, location
+
+
+def _normalize_location(value: str) -> str:
+    return (
+        value.lower()
+        .replace("\u00e4", "ae")
+        .replace("\u00f6", "oe")
+        .replace("\u00fc", "ue")
+        .replace("\u00df", "ss")
+        .replace("\u00c3\u00a4", "ae")
+        .replace("\u00c3\u00b6", "oe")
+        .replace("\u00c3\u00bc", "ue")
+        .replace("\u00c3\u009f", "ss")
+    )
+
+
 def assignment_datetime(assignment: RefereeAssignment) -> dt.datetime | None:
     if not assignment.date or not assignment.time:
         return None
@@ -221,4 +252,3 @@ def build_assignment_description(assignment: RefereeAssignment) -> str:
     if assignment.referees:
         lines.append("Referees: " + ", ".join(assignment.referees))
     return "\n".join(lines)
-
