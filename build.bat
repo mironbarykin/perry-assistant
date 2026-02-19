@@ -1,4 +1,4 @@
-﻿@echo off
+@echo off
 setlocal EnableExtensions EnableDelayedExpansion
 
 REM ===== User-configurable settings =====
@@ -6,17 +6,20 @@ set "IMAGE_NAME=assistant-perry"
 set "CONTAINER_NAME=perry"
 set "REMOTE_USER=root"
 set "REMOTE_HOST=2.server.barykin.de"
-set "REMOTE_PATH=~/projects/perry"
+set "REMOTE_PATH=/root/projects/perry"
 set "REMOTE_KEY=C:\Users\baryk\.ssh\id_ed25519_strato_no"
 set "REMOTE_ENV_FILE=%REMOTE_PATH%/.env"
 set "HEALTHCHECK_WAIT_SEC=8"
 set "RETAIN_RELEASES=5"
+set "REMOTE_DEPLOY_SCRIPT=%REMOTE_PATH%/deploy_remote.sh"
+set "LOCAL_DEPLOY_SCRIPT=scripts/deploy_remote.sh"
 
 set "EXIT_CODE=0"
 set "TAR_FILE="
 
 call :log "[1/6] Preflight checks"
 call :require_command docker || goto :fail
+call :require_docker_daemon || goto :fail
 call :require_command ssh || goto :fail
 call :require_command scp || goto :fail
 
@@ -25,9 +28,14 @@ if not exist "%REMOTE_KEY%" (
   goto :fail
 )
 
-ssh -i "%REMOTE_KEY%" %REMOTE_USER%@%REMOTE_HOST% "bash -lc \"set -euo pipefail; command -v docker > /dev/null 2>&1; mkdir -p '%REMOTE_PATH%' '%REMOTE_PATH%/data'; test -f '%REMOTE_ENV_FILE%'\""
+ssh -i "%REMOTE_KEY%" %REMOTE_USER%@%REMOTE_HOST% "bash -lc 'set -euo pipefail; command -v docker; mkdir -p \"%REMOTE_PATH%\" \"%REMOTE_PATH%/data\"; test -f \"%REMOTE_ENV_FILE%\"'"
 if errorlevel 1 (
   call :error "Remote preflight failed (docker/path/.env check)."
+  goto :fail
+)
+
+if not exist "%LOCAL_DEPLOY_SCRIPT%" (
+  call :error "Missing local deploy script: %LOCAL_DEPLOY_SCRIPT%"
   goto :fail
 )
 
@@ -59,15 +67,20 @@ if errorlevel 1 (
   goto :fail
 )
 
-call :log "[4/6] Upload tar to remote host"
+call :log "[4/6] Upload artifacts to remote host"
 scp -i "%REMOTE_KEY%" "%TAR_FILE%" %REMOTE_USER%@%REMOTE_HOST%:%REMOTE_PATH%/
 if errorlevel 1 (
   call :error "SCP upload failed."
   goto :fail
 )
+scp -i "%REMOTE_KEY%" "%LOCAL_DEPLOY_SCRIPT%" %REMOTE_USER%@%REMOTE_HOST%:%REMOTE_DEPLOY_SCRIPT%
+if errorlevel 1 (
+  call :error "SCP upload failed for remote deploy script."
+  goto :fail
+)
 
 call :log "[5/6] Deploy and health-check with rollback"
-ssh -i "%REMOTE_KEY%" %REMOTE_USER%@%REMOTE_HOST% "bash -lc \"set -euo pipefail; cd '%REMOTE_PATH%'; ROLLBACK_IMAGE_ID=\$(docker container inspect --format='{{.Image}}' '%CONTAINER_NAME%' 2>/dev/null || true); if docker container inspect '%CONTAINER_NAME%' >/dev/null 2>&1; then docker stop '%CONTAINER_NAME%' >/dev/null 2>&1 || true; docker rm '%CONTAINER_NAME%' >/dev/null 2>&1 || true; fi; docker load -i '%TAR_FILE%'; docker run -d --restart always --name '%CONTAINER_NAME%' --env-file '%REMOTE_ENV_FILE%' -v '%REMOTE_PATH%/data:/data' '%IMAGE_TAG%' >/dev/null; sleep %HEALTHCHECK_WAIT_SEC%; RUNNING_STATE=\$(docker inspect --format='{{.State.Running}}' '%CONTAINER_NAME%' 2>/dev/null || echo false); if [ \"\$RUNNING_STATE\" != \"true\" ]; then echo 'New container failed health check. Rolling back.'; docker rm '%CONTAINER_NAME%' >/dev/null 2>&1 || true; if [ -n \"\$ROLLBACK_IMAGE_ID\" ]; then docker run -d --restart always --name '%CONTAINER_NAME%' --env-file '%REMOTE_ENV_FILE%' -v '%REMOTE_PATH%/data:/data' \"\$ROLLBACK_IMAGE_ID\" >/dev/null; fi; exit 1; fi; ls -1t %IMAGE_NAME%-*.tar 2>/dev/null | tail -n +%RETAIN_RELEASES_PLUS_ONE% | xargs -r rm -f; echo 'Deploy successful: %IMAGE_TAG%';\""
+ssh -i "%REMOTE_KEY%" %REMOTE_USER%@%REMOTE_HOST% "bash '%REMOTE_DEPLOY_SCRIPT%' '%CONTAINER_NAME%' '%REMOTE_ENV_FILE%' '%REMOTE_PATH%' '%TAR_FILE%' '%IMAGE_TAG%' '%HEALTHCHECK_WAIT_SEC%' '%IMAGE_NAME%' '%RETAIN_RELEASES%'"
 if errorlevel 1 (
   call :error "Remote deployment failed."
   goto :fail
@@ -93,6 +106,17 @@ if errorlevel 1 (
 )
 exit /b 0
 
+:require_docker_daemon
+docker version >NUL 2>&1
+if errorlevel 1 (
+  call :error "Docker daemon is not reachable."
+  call :error "Start Docker Desktop and wait until it shows Running."
+  call :error "Make sure context is desktop-linux: docker context use desktop-linux"
+  call :error "Then verify with: docker version"
+  exit /b 1
+)
+exit /b 0
+
 :log
 echo %~1
 exit /b 0
@@ -103,3 +127,4 @@ exit /b 0
 
 :end
 endlocal & exit /b %EXIT_CODE%
+
