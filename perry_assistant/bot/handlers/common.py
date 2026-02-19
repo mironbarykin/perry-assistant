@@ -83,24 +83,43 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
     text = update.message.text.strip().upper()
     if text == "TODAY":
         from perry_assistant.bot.handlers.schedule import today
-
         await today(update, context)
         return
-
-    if text == "WEEKEND":
-        from perry_assistant.bot.handlers.schedule import weekend
-
-        await weekend(update, context)
+    if text == "SCHEDULE":
+        from perry_assistant.bot.keyboards import build_schedule_keyboard
+        await update.message.reply_text("Ok👌", reply_markup=build_schedule_keyboard())
         return
-
+    if text == "THIS WEEKEND":
+        from perry_assistant.bot.handlers.schedule import this_weekend
+        await this_weekend(update, context)
+        return
+    if text == "NEXT WEEKEND":
+        from perry_assistant.bot.handlers.schedule import next_weekend
+        await next_weekend(update, context)
+        return
+    if text == "OTHER":
+        from perry_assistant.bot.handlers.schedule import other_weekend
+        await other_weekend(update, context)
+        return
+    if text == "BACK":
+        from perry_assistant.bot.keyboards import build_main_keyboard
+        services = get_services(context)
+        user = update.effective_user
+        is_admin = user and user.id == services.config.miron_id
+        await update.message.reply_text("Ok👌", reply_markup=build_main_keyboard(is_admin))
+        return
+    services = get_services(context)
+    user = update.effective_user
+    is_admin = user and user.id == services.config.miron_id
     if text == "EMAILS":
+        if not is_admin:
+            return
         from perry_assistant.bot.handlers.referee import emails
-
         await emails(update, context)
         return
-
     if text == "ABSENCES":
+        if not is_admin:
+            return
         from perry_assistant.bot.handlers.absences import absences
-
         await absences(update, context)
 

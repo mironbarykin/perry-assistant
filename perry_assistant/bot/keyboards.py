@@ -1,10 +1,17 @@
 from telegram import KeyboardButton, ReplyKeyboardMarkup
 
 
+def build_schedule_keyboard() -> ReplyKeyboardMarkup:
+    row1 = [KeyboardButton("THIS WEEKEND"), KeyboardButton("NEXT WEEKEND")]
+    row2 = [KeyboardButton("OTHER"), KeyboardButton("BACK")]
+    return ReplyKeyboardMarkup([row1, row2], resize_keyboard=True)
+
+
 def build_main_keyboard(is_admin: bool) -> ReplyKeyboardMarkup:
-    base_row = [KeyboardButton("TODAY"), KeyboardButton("WEEKEND")]
-    second_row = [KeyboardButton("ABSENCES")]
+    base_row = [KeyboardButton("TODAY"), KeyboardButton("SCHEDULE")]
+    second_row = []
     if is_admin:
+        second_row.append(KeyboardButton("ABSENCES"))
         second_row.append(KeyboardButton("EMAILS"))
-    return ReplyKeyboardMarkup([base_row, second_row], resize_keyboard=True)
+    return ReplyKeyboardMarkup([base_row, second_row] if second_row else [base_row], resize_keyboard=True)
 

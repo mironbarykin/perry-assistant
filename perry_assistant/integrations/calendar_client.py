@@ -110,10 +110,11 @@ class CalendarClient:
         else:
             time_text = start_text
 
+
         address = ""
-        if is_basketball and location:
+        if location:
             gmaps_url = f"https://maps.google.com/?q={quote_plus(location)}"
-            address = f" ({gmaps_url})"
+            address = f" [📍Location]({gmaps_url})"
 
         line = f"{cal_symbol} {time_text} - {summary}{address}".strip()
         return EventView(start=start_dt, line=line, is_basketball=is_basketball, is_all_day=False, end=end_dt)

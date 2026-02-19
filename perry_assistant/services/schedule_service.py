@@ -39,32 +39,49 @@ class ScheduleService:
         events = self._calendar.get_events_for_date(date)
         if not events:
             return f"No {label} found."
-        return "\n".join(item.line for item in events)
+        date_str = date.strftime('%A, %Y-%m-%d')
+        return f"{date_str}\n" + "\n".join(item.line for item in events)
 
-    def today_message(self) -> str:
+    def today_message(self, user_id: int, is_admin: bool = False) -> str:
         now = dt.datetime.now(dt.UTC)
-        return f"Today's events:\n{self.day_events_text(now, 'today events')}"
+        events = self._calendar.get_events_for_date(now)
+        filtered_events = []
+        for event in events:
+            cal_symbol = event.line[0] if event.line else "?"
+            if not is_admin and cal_symbol.upper() == "P":
+                continue
+            filtered_events.append(event)
+        filtered_events = sorted(filtered_events, key=lambda item: (not item.is_all_day, item.start is None, item.start))
+        if not filtered_events:
+            return "No events found."
+        lines = []
+        for event in filtered_events:
+            if event.is_all_day:
+                lines.append(f"📅 [all-day] {event.line[10:] if event.line.startswith('[all-day]') else event.line}")
+            else:
+                lines.append(f"📅 {event.line}")
+        date_str = now.strftime('%A, %Y-%m-%d')
+        return f"{date_str}\n" + "\n".join(lines)
 
     def tomorrow_message(self) -> str:
         target = dt.datetime.now(dt.UTC) + dt.timedelta(days=1)
-        return f"Tomorrow's events:\n{self.day_events_text(target, 'tomorrow events')}"
+        date_str = target.strftime('%A, %Y-%m-%d')
+        return f"{date_str}\n{self.day_events_text(target, 'tomorrow events')}"
 
     def weekend_message(self) -> str:
         now = dt.datetime.now(dt.UTC)
         saturday = now + dt.timedelta((5 - now.weekday()) % 7)
         sunday = saturday + dt.timedelta(days=1)
-        sat_events = [
-            item.line for item in self._calendar.get_events_for_date(saturday) if item.is_basketball
-        ]
-        sun_events = [
-            item.line for item in self._calendar.get_events_for_date(sunday) if item.is_basketball
-        ]
+        sat_events = [item.line for item in self._calendar.get_events_for_date(saturday) if item.is_basketball]
+        sun_events = [item.line for item in self._calendar.get_events_for_date(sunday) if item.is_basketball]
         sat_text = "\n".join(sat_events) if sat_events else "No events"
         sun_text = "\n".join(sun_events) if sun_events else "No events"
+        sat_date = saturday.strftime('%A, %Y-%m-%d')
+        sun_date = sunday.strftime('%A, %Y-%m-%d')
         return (
             f"Weekend basketball events ({saturday.day}-{sunday.day})\n"
-            f"Saturday:\n{sat_text}\n\n"
-            f"Sunday:\n{sun_text}"
+            f"Saturday: {sat_date}\n{sat_text}\n\n"
+            f"Sunday: {sun_date}\n{sun_text}"
         )
 
     def morning_digest(self, home_coords: dict[str, float], school_coords: dict[str, float]) -> str:
