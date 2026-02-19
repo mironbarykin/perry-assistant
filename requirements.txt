@@ -1,10 +1,7 @@
-python-dotenv
-Flask
+﻿python-dotenv
 requests
-python-telegram-bot==20.0
+python-telegram-bot[job-queue]==20.0
 google-auth
 google-auth-oauthlib
 google-api-python-client
-python-telegram-bot[job_queue]
-aiohttp
 beautifulsoup4
