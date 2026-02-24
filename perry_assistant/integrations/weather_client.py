@@ -44,7 +44,7 @@ class WeatherClient:
 
 def weather_message(weather: WeatherSnapshot | None, route_angle: int = 30) -> str:
     if not weather or weather.temp is None:
-        return "Weather unavailable."
+        return "⚪ Weather unavailable."
 
     score = 0
 
@@ -99,5 +99,25 @@ def weather_message(weather: WeatherSnapshot | None, route_angle: int = 30) -> s
     else:
         level = "RED"
 
-    return f"{level} | {temp_msg} | {wind_msg} | {rain_msg}"
+    severity_emoji = {
+        "GREEN": "🟢",
+        "YELLOW": "🟡",
+        "ORANGE": "🟠",
+        "RED": "🔴",
+    }[level]
+    rain_emoji = _rain_emoji(weather)
+    rain_suffix = f" {rain_emoji}" if rain_emoji else ""
+    wind_value = f"{weather.wind_speed:.1f}" if weather.wind_speed is not None else "-"
+    return f"{severity_emoji} 🌡️ {weather.temp:.1f} ℃ 💨 {wind_value} m/s{rain_suffix}"
 
+
+def _rain_emoji(weather: WeatherSnapshot) -> str | None:
+    if not weather.rain:
+        return None
+
+    description = weather.description.lower()
+    if "thunder" in description or "storm" in description:
+        return "⛈️"
+    if "drizzle" in description or "light rain" in description:
+        return "☂️"
+    return "🌧️"

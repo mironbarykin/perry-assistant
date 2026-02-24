@@ -28,9 +28,9 @@ async def start(update: Update, context: CallbackContext) -> None:
             parents.append(user.id)
             write_json(services.config.parents_file, parents)
 
-    command_text = "Commands: /today /tomorrow /weekend /absence /absences /excuse"
+    command_text = "Commands: /today /tomorrow /weekend"
     if is_admin:
-        command_text += " /published"
+        command_text += " /absence /absences /excused /excuse /published"
 
     await update.message.reply_text(
         (
@@ -89,7 +89,7 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
     text = update.message.text.strip().upper()
     is_admin = bool(user and user.id == services.config.miron_id)
 
-    if text in {"ABSENCES", "EXCUSABLE TODAY", "ALL ABSENCES", "I AM ABSENT"} and not is_admin:
+    if text in {"ABSENCES", "EXCUSABLE TODAY", "ALL ABSENCES", "EXCUSED ABSENCES", "I AM ABSENT"} and not is_admin:
         await update.message.reply_text("Access denied. Admin only.")
         return
 
@@ -111,6 +111,12 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
         await absences_all(update, context)
         return
 
+    if text == "EXCUSED ABSENCES":
+        from perry_assistant.bot.handlers.absences import absences_excused
+
+        await absences_excused(update, context)
+        return
+
     if text == "I AM ABSENT":
         from perry_assistant.bot.handlers.absences import absences_absent
 
@@ -118,11 +124,12 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
         return
 
     if text == "SCHEDULE":
-        await update.message.reply_text("Ok👌", reply_markup=build_schedule_keyboard())
+        await update.message.reply_text("OK", reply_markup=build_schedule_keyboard())
         return
-    
+
     if text == "TODAY":
         from perry_assistant.bot.handlers.schedule import today
+
         await today(update, context)
         return
 
@@ -154,5 +161,5 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
         return
 
     if text == "BACK":
-        await update.message.reply_text("Ok👌", reply_markup=build_main_keyboard(is_admin))
+        await update.message.reply_text("OK", reply_markup=build_main_keyboard(is_admin))
         return

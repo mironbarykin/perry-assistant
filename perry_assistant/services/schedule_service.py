@@ -79,15 +79,15 @@ class ScheduleService:
         school_events = [event for event in events if "school" in clean_text(event.line)]
         school_end = max((event.end for event in school_events if event.end), default=None)
 
-        home_target = today.replace(hour=7, minute=0, second=0, microsecond=0)
-        home_weather = self._weather.get_weather(home_coords, home_target)
-        lines.append(f"Home route weather: {weather_message(home_weather)}")
+        school_target = today.replace(hour=7, minute=0, second=0, microsecond=0)
+        school_weather = self._weather.get_weather(home_coords, school_target)
+        lines.append(f"🏫 {weather_message(school_weather)}")
 
         if school_end:
-            school_weather = self._weather.get_weather(school_coords, school_end)
-            lines.append(f"School end weather: {weather_message(school_weather)}")
+            home_weather = self._weather.get_weather(school_coords, school_end)
+            lines.append(f"🏠 {weather_message(home_weather)}")
         else:
-            lines.append("No school event today.")
+            lines.append("🏠 No school event today.")
 
         gap_warning = check_school_practice_gap(events)
         if gap_warning:
@@ -98,7 +98,10 @@ class ScheduleService:
     @staticmethod
     def _display_line(event: EventView) -> str:
         if event.is_all_day:
-            return event.line if event.line.startswith("all-day - ") else f"all-day - {event.line}"
+            line = event.line.strip()
+            if line.lower().startswith("all-day - "):
+                line = line[10:].strip()
+            return line if line.startswith("📌 ") else f"📌 {line}"
         return event.line
 
     @staticmethod

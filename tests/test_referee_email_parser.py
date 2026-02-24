@@ -78,3 +78,47 @@ def test_parse_verlegung_uses_new_datetime():
     assert assignment.date == "19.02.2026"
     assert assignment.hall_code == "222B222"
 
+
+def test_parse_umbesetzung_new_template():
+    content = {
+        "subject": "Umbesetzung",
+        "content": (
+            "1. Ansetzung:\n"
+            "Datum: Sam, 28.02.2026\n"
+            "Zeit: 16:00\n"
+            "Liga: BeL12H\n"
+            "Spiel-Nr.: 61\n"
+            "Begegnung: FC Finnentrop - TuS Fellinghausen 2\n"
+            "Halle: 311C511\n"
+        ),
+    }
+    assignments = parse_referee_email(content)
+    assert assignments is not None
+    assert len(assignments) == 1
+    assignment = assignments[0]
+    assert assignment.type == "UMBESETZUNG"
+    assert assignment.date == "28.02.2026"
+    assert assignment.time == "16:00"
+    assert assignment.liga == "BeL12H"
+    assert assignment.spielnummer == "61"
+    assert assignment.teams == "FC Finnentrop - TuS Fellinghausen 2"
+    assert assignment.hall_code == "311C511"
+
+
+def test_parse_umbesetzung_datum_without_weekday():
+    content = {
+        "subject": "Umbesetzung",
+        "content": (
+            "Datum: 28.02.2026\n"
+            "Zeit: 16:00\n"
+            "Liga: BeL12H\n"
+            "Spielnummer: 61\n"
+            "Begegnung: Team A - Team B\n"
+            "Halle: 311C511\n"
+        ),
+    }
+    assignments = parse_referee_email(content)
+    assert assignments is not None
+    assignment = assignments[0]
+    assert assignment.date == "28.02.2026"
+    assert assignment.spielnummer == "61"

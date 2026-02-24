@@ -3,8 +3,8 @@ from perry_assistant.integrations.weather_client import weather_message
 
 
 def test_weather_message_unavailable():
-    assert weather_message(None) == "Weather unavailable."
-    assert weather_message(WeatherSnapshot(None, None, None, False, "")) == "Weather unavailable."
+    assert weather_message(None) == "⚪ Weather unavailable."
+    assert weather_message(WeatherSnapshot(None, None, None, False, "")) == "⚪ Weather unavailable."
 
 
 def test_weather_message_headwind_and_rain():
@@ -16,8 +16,8 @@ def test_weather_message_headwind_and_rain():
         description="rain",
     )
     output = weather_message(weather)
-    assert "RED" in output or "ORANGE" in output
-    assert "Rain expected" in output
+    assert "🔴" in output or "🟠" in output
+    assert "🌧️" in output
 
 
 def test_weather_message_tailwind_good_conditions():
@@ -29,6 +29,5 @@ def test_weather_message_tailwind_good_conditions():
         description="clear",
     )
     output = weather_message(weather)
-    assert "GREEN" in output or "YELLOW" in output
-    assert "tailwind" in output
-
+    assert "🟢" in output or "🟡" in output
+    assert "🌡️ 18.0 ℃" in output

@@ -3,6 +3,7 @@
 import datetime as dt
 import logging
 import pickle
+import re
 from dataclasses import asdict
 from typing import Any
 from urllib.parse import quote_plus
@@ -49,12 +50,9 @@ class CalendarClient:
 
     def get_calendar_id_by_name(self, calendar_name: str = REFEREE_CALENDAR_NAME) -> str:
         calendars = self.get_all_calendars()
-        for calendar in calendars:
-            if calendar.get("summary", "").lower() == calendar_name.lower():
-                return calendar["id"]
-        for calendar in calendars:
-            if calendar.get("primary"):
-                return calendar["id"]
+        selected = select_calendar_id(calendars, calendar_name)
+        if selected:
+            return selected
         return "primary"
 
     def get_events_for_date(self, target_date: dt.datetime) -> list[EventView]:
@@ -152,6 +150,19 @@ class CalendarClient:
             orderBy="startTime",
         ).execute().get("items", [])
 
+    def get_future_referee_game_events(self, start_time: dt.datetime | None = None) -> list[dict[str, Any]]:
+        service = self._service()
+        calendar_id = self.get_calendar_id_by_name(REFEREE_CALENDAR_NAME)
+        start = (start_time or dt.datetime.now(dt.UTC)).astimezone(dt.UTC).isoformat()
+        events = service.events().list(
+            calendarId=calendar_id,
+            timeMin=start,
+            singleEvents=True,
+            orderBy="startTime",
+            maxResults=2500,
+        ).execute().get("items", [])
+        return [event for event in events if "referee game" in event.get("summary", "").lower()]
+
     def get_event(self, event_id: str) -> dict[str, Any]:
         service = self._service()
         calendar_id = self.get_calendar_id_by_name(REFEREE_CALENDAR_NAME)
@@ -165,13 +176,13 @@ class CalendarClient:
         if not start_dt:
             return None
         end_dt = start_dt + dt.timedelta(hours=2)
-        summary = f"Game: {assignment.teams}" if assignment.teams else "Game"
+        summary = referee_game_summary(assignment)
         description = build_assignment_description(assignment)
 
         event = {
             "summary": summary,
             "description": description,
-            "location": location,
+            "location": sanitize_event_location(location),
             "start": {"dateTime": start_dt.isoformat(), "timeZone": "Europe/Berlin"},
             "end": {"dateTime": end_dt.isoformat(), "timeZone": "Europe/Berlin"},
         }
@@ -183,9 +194,9 @@ class CalendarClient:
         calendar_id = self.get_calendar_id_by_name(REFEREE_CALENDAR_NAME)
         start_dt = assignment_datetime(assignment)
         patch: dict[str, Any] = {
-            "summary": f"Game: {assignment.teams}" if assignment.teams else "Game",
+            "summary": referee_game_summary(assignment),
             "description": build_assignment_description(assignment),
-            "location": location,
+            "location": sanitize_event_location(location),
         }
         if start_dt:
             end_dt = start_dt + dt.timedelta(hours=2)
@@ -197,7 +208,7 @@ class CalendarClient:
     def cancel_referee_event(self, event_id: str, assignment: RefereeAssignment, cancel_color_id: str) -> str | None:
         service = self._service()
         calendar_id = self.get_calendar_id_by_name(REFEREE_CALENDAR_NAME)
-        summary = f"Game: {assignment.teams}" if assignment.teams else "Game"
+        summary = referee_game_summary(assignment)
         if not summary.startswith("CANCELLED:"):
             summary = f"CANCELLED: {summary}"
         patch = {"summary": summary, "colorId": cancel_color_id}
@@ -237,6 +248,63 @@ def assignment_datetime(assignment: RefereeAssignment) -> dt.datetime | None:
     ).replace(tzinfo=BERLIN_TZ)
 
 
+def referee_game_summary(assignment: RefereeAssignment) -> str:
+    return f"{league_short_name(assignment)} Referee Game"
+
+
+def league_short_name(assignment: RefereeAssignment) -> str:
+    if assignment.liga:
+        bracket_match = re.search(r"\(([^()]+)\)", assignment.liga)
+        if bracket_match:
+            value = bracket_match.group(1).strip()
+            if value:
+                return value
+        token_match = re.search(r"[A-Za-z0-9-]+", assignment.liga)
+        if token_match:
+            return token_match.group(0)
+    if assignment.spielnummer:
+        return str(assignment.spielnummer).strip()
+    return "GAME"
+
+
+def sanitize_event_location(location: str | None) -> str | None:
+    if not location:
+        return location
+    return re.sub(r"\s*\(\d{3}[A-Z]\d{3}\)\s*$", "", location).strip()
+
+
+def select_calendar_id(calendars: list[dict[str, Any]], calendar_name: str) -> str | None:
+    target = (calendar_name or "").strip().lower()
+    if not target:
+        return None
+
+    exact: list[dict[str, Any]] = []
+    contains: list[dict[str, Any]] = []
+    basketball: list[dict[str, Any]] = []
+    primary: str | None = None
+
+    for calendar in calendars:
+        summary = str(calendar.get("summary", "")).strip()
+        summary_l = summary.lower()
+        if calendar.get("primary"):
+            primary = str(calendar.get("id"))
+        if summary_l == target:
+            exact.append(calendar)
+            continue
+        if target in summary_l or summary_l in target:
+            contains.append(calendar)
+        if "basketball" in target and "basketball" in summary_l:
+            basketball.append(calendar)
+
+    for bucket in (exact, contains, basketball):
+        if bucket:
+            non_primary = next((item for item in bucket if not item.get("primary")), None)
+            picked = non_primary or bucket[0]
+            return str(picked.get("id"))
+
+    return primary
+
+
 def build_assignment_description(assignment: RefereeAssignment) -> str:
     lines: list[str] = []
     payload = asdict(assignment)
@@ -244,6 +312,7 @@ def build_assignment_description(assignment: RefereeAssignment) -> str:
         ("Type", "type"),
         ("Liga", "liga"),
         ("Spielnummer", "spielnummer"),
+        ("Teams", "teams"),
         ("Halle", "hall_code"),
     ):
         value = payload.get(key)

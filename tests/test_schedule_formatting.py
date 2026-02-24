@@ -59,3 +59,40 @@ def test_weekend_message_filters_basketball():
     assert "A game 2" in message
     assert "Non basketball" not in message
 
+
+def test_day_events_text_formats_all_day_with_pin():
+    target = dt.datetime(2026, 2, 20, 12, 0, tzinfo=dt.UTC)
+    mapping = {
+        target.date(): [
+            EventView(
+                start=target.replace(hour=0, minute=0),
+                end=target.replace(hour=23, minute=59),
+                line="all-day - School trip",
+                is_basketball=False,
+                is_all_day=True,
+            ),
+        ]
+    }
+    service = ScheduleService(FakeCalendarClient(mapping), FakeWeatherClient())
+    message = service.day_events_text(target)
+    assert "📌 School trip" in message
+    assert "all-day -" not in message
+
+
+def test_morning_digest_uses_route_icons():
+    target = dt.datetime.now(dt.UTC)
+    mapping = {
+        target.date(): [
+            EventView(
+                start=target.replace(hour=8),
+                end=target.replace(hour=14),
+                line="School lessons",
+                is_basketball=False,
+                is_all_day=False,
+            ),
+        ]
+    }
+    service = ScheduleService(FakeCalendarClient(mapping), FakeWeatherClient())
+    digest = service.morning_digest({"lat": 1, "lon": 2}, {"lat": 3, "lon": 4})
+    assert "🏫" in digest
+    assert "🏠" in digest

@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import datetime as dt
+import re
 
 from perry_assistant.config import AppConfig
 from perry_assistant.domain.models import AbsenceRecord
 from perry_assistant.storage.json_store import read_json, write_json
+
+
+MM_DD_RE = re.compile(r"^\d{2}-\d{2}$")
 
 
 class AbsenceService:
@@ -13,7 +17,7 @@ class AbsenceService:
         self._timetable_file = config.school_timetable_file
 
     def add_absence(self, date: str, subjects: list[str]) -> list[AbsenceRecord]:
-        self._validate_date(date)
+        normalized_date = self._normalize_date(date)
         records = self._load_absences()
         existing_unexcused = {
             (item.date, item.subject.strip().lower())
@@ -25,10 +29,10 @@ class AbsenceService:
             cleaned_subject = subject.strip()
             if not cleaned_subject:
                 continue
-            key = (date, cleaned_subject.lower())
+            key = (normalized_date, cleaned_subject.lower())
             if key in existing_unexcused:
                 continue
-            record = AbsenceRecord(date=date, subject=cleaned_subject, excused=False)
+            record = AbsenceRecord(date=normalized_date, subject=cleaned_subject, excused=False)
             records.append(record)
             added.append(record)
             existing_unexcused.add(key)
@@ -36,7 +40,16 @@ class AbsenceService:
         return added
 
     def get_unexcused_absences(self) -> list[AbsenceRecord]:
-        return [item for item in self._load_absences() if not item.excused]
+        return sorted(
+            [item for item in self._load_absences() if not item.excused],
+            key=lambda item: (item.date, item.subject.lower()),
+        )
+
+    def get_excused_absences(self) -> list[AbsenceRecord]:
+        return sorted(
+            [item for item in self._load_absences() if item.excused],
+            key=lambda item: (item.date, item.subject.lower()),
+        )
 
     def get_excusable_absences_today(self, now: dt.datetime | None = None) -> list[AbsenceRecord]:
         now = now or dt.datetime.now()
@@ -46,24 +59,39 @@ class AbsenceService:
 
         excusable: list[AbsenceRecord] = []
         for item in self.get_unexcused_absences():
-            absence_date = dt.datetime.strptime(item.date, "%Y-%m-%d")
-            if absence_date.weekday() == weekday or item.subject.strip().lower() in today_subjects:
+            absence_weekday = self._weekday_for_year(item.date, now.year)
+            subject_match = item.subject.strip().lower() in today_subjects
+            if absence_weekday == weekday or subject_match:
                 excusable.append(item)
         return excusable
 
     def mark_absence_excused(self, date: str, subject: str | None = None) -> bool:
-        self._validate_date(date)
+        normalized_date = self._normalize_date(date)
+        subjects = [subject] if subject else []
+        changed = self.mark_absences_excused([(normalized_date, subjects)])
+        return changed > 0
+
+    def mark_absences_excused(self, groups: list[tuple[str, list[str]]]) -> int:
         records = self._load_absences()
-        updated = False
-        for item in records:
-            if item.date != date or item.excused:
-                continue
-            if subject and item.subject != subject:
-                continue
-            item.excused = True
-            updated = True
+        total_changed = 0
+
+        normalized_groups: list[tuple[str, set[str]]] = []
+        for date, subjects in groups:
+            normalized_date = self._normalize_date(date)
+            normalized_subjects = {subject.strip().lower() for subject in subjects if subject.strip()}
+            normalized_groups.append((normalized_date, normalized_subjects))
+
+        for date, subjects in normalized_groups:
+            for item in records:
+                if item.date != date or item.excused:
+                    continue
+                if subjects and item.subject.strip().lower() not in subjects:
+                    continue
+                item.excused = True
+                total_changed += 1
+
         self._save_absences(records)
-        return updated
+        return total_changed
 
     def get_school_timetable(self) -> dict[int, list[str]]:
         raw = read_json(self._timetable_file, {})
@@ -81,9 +109,13 @@ class AbsenceService:
         for item in raw:
             if "date" not in item or "subject" not in item:
                 continue
+            try:
+                normalized_date = self._normalize_date(str(item["date"]))
+            except ValueError:
+                continue
             output.append(
                 AbsenceRecord(
-                    date=str(item["date"]),
+                    date=normalized_date,
                     subject=str(item["subject"]),
                     excused=bool(item.get("excused", False)),
                 )
@@ -95,5 +127,23 @@ class AbsenceService:
         write_json(self._absence_file, payload)
 
     @staticmethod
-    def _validate_date(date: str) -> None:
-        dt.datetime.strptime(date, "%Y-%m-%d")
+    def _normalize_date(date: str) -> str:
+        value = date.strip()
+
+        if MM_DD_RE.fullmatch(value):
+            dt.datetime.strptime(f"2000-{value}", "%Y-%m-%d")
+            return value
+
+        try:
+            parsed = dt.datetime.strptime(value, "%Y-%m-%d")
+        except ValueError as exc:
+            raise ValueError("Date must be MM-DD.") from exc
+        return parsed.strftime("%m-%d")
+
+    @staticmethod
+    def _weekday_for_year(date_mmdd: str, year: int) -> int | None:
+        try:
+            parsed = dt.datetime.strptime(f"{year}-{date_mmdd}", "%Y-%m-%d")
+        except ValueError:
+            return None
+        return parsed.weekday()

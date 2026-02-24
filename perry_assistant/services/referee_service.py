@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import datetime as dt
+import html
 import logging
 import re
 from dataclasses import asdict
+from urllib.parse import quote_plus
 
+from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
 from perry_assistant.config import AppConfig
@@ -13,7 +16,9 @@ from perry_assistant.domain.models import RefereeAssignment
 from perry_assistant.integrations.calendar_client import (
     CalendarClient,
     assignment_datetime,
+    league_short_name,
     parse_google_datetime,
+    sanitize_event_location,
 )
 from perry_assistant.integrations.gmail_client import GmailClient
 from perry_assistant.integrations.gym_client import GymClient
@@ -23,15 +28,20 @@ from perry_assistant.utils import clean_text
 
 logger = logging.getLogger(__name__)
 
+ICON_BUSY = "\U0001F645\u200d\u2642\ufe0f"  # 🙅‍♂️
+ICON_CLOSE = "\U0001F44C"  # 👌
+ICON_FREE = "\U0001F44D"  # 👍
+ICON_UNKNOWN = "\u2754"  # ❔
+
 
 MOJIBAKE_MAP = {
-    "Ã¤": "ä",
-    "Ã¶": "ö",
-    "Ã¼": "ü",
-    "Ã„": "Ä",
-    "Ã–": "Ö",
-    "Ãœ": "Ü",
-    "ÃŸ": "ß",
+    "ÃƒÂ¤": "Ã¤",
+    "ÃƒÂ¶": "Ã¶",
+    "ÃƒÂ¼": "Ã¼",
+    "Ãƒâ€ž": "Ã„",
+    "Ãƒâ€“": "Ã–",
+    "ÃƒÅ“": "Ãœ",
+    "ÃƒÅ¸": "ÃŸ",
 }
 
 
@@ -53,11 +63,11 @@ def detect_email_type(subject: str, body: str) -> str | None:
         if "abgesagt" in body_l or "absage" in body_l or "aufgehoben" in body_l:
             return "ABSAGE"
         return "VERLEGUNG"
-    if "ansetzungen" in subject_l and ("geändert" in subject_l or "geaendert" in subject_l):
+    if "ansetzungen" in subject_l and ("geÃ¤ndert" in subject_l or "geaendert" in subject_l):
         return "AENDERUNG"
-    if "ansetzungen" in body_l and ("geändert" in body_l or "geaendert" in body_l):
+    if "ansetzungen" in body_l and ("geÃ¤ndert" in body_l or "geaendert" in body_l):
         return "AENDERUNG"
-    if "sr-rückzug" in subject_l or "sr-rueckzug" in subject_l or "rückzug" in subject_l:
+    if "sr-rÃ¼ckzug" in subject_l or "sr-rueckzug" in subject_l or "rÃ¼ckzug" in subject_l:
         return "RUECKZUG"
     return None
 
@@ -70,8 +80,8 @@ def parse_referee_email(content: dict[str, str]) -> list[RefereeAssignment] | No
         return None
 
     sections = [body]
-    if "1. Ansetzung:" in body:
-        sections = re.split(r"\d+\.\s*Ansetzung:", body)[1:]
+    if re.search(r"\d+\.\s*Ansetzung:", body):
+        sections = [part for part in re.split(r"\d+\.\s*Ansetzung:\s*", body) if part.strip()]
 
     parsed: list[RefereeAssignment] = []
     for section in sections:
@@ -86,6 +96,8 @@ def parse_referee_email(content: dict[str, str]) -> list[RefereeAssignment] | No
             data["hall_code"] = data.get("new_hall_code") or data.get("hall_code")
             data["address"] = data.get("new_address") or data.get("address")
 
+        if not any(data.get(key) for key in ("date", "time", "liga", "spielnummer", "teams", "hall_code")):
+            continue
         parsed.append(RefereeAssignment(**data))
 
     return parsed or None
@@ -104,11 +116,11 @@ def _extract_basic_fields(body: str) -> dict:
         "referees": None,
     }
 
-    liga_match = re.search(r"Liga:\s*([^\n]+)", body)
+    liga_match = re.search(r"Liga:\s*([^\n]+)", body, re.IGNORECASE)
     if liga_match:
         info["liga"] = liga_match.group(1).strip()
 
-    spielnr_match = re.search(r"Spielnummer:\s*([0-9]+)", body)
+    spielnr_match = re.search(r"Spiel(?:-Nr\.?|nummer)\s*:\s*([^\n]+)", body, re.IGNORECASE)
     if spielnr_match:
         info["spielnummer"] = spielnr_match.group(1).strip()
 
@@ -122,10 +134,25 @@ def _extract_basic_fields(body: str) -> dict:
         info["date"] = datetime_match.group(1)
         info["time"] = datetime_match.group(2)
 
+    date_match = re.search(
+        r"Datum:\s*(?:[A-Za-zÄÖÜäöü]{2,4},\s*)?(\d{2}\.\d{2}\.\d{4})",
+        body,
+        re.IGNORECASE,
+    )
+    time_match = re.search(r"Zeit:\s*(\d{2}:\d{2})", body, re.IGNORECASE)
+    if date_match and not info["date"]:
+        info["date"] = date_match.group(1)
+    if time_match and not info["time"]:
+        info["time"] = time_match.group(1)
+
     home_match = re.search(r"Heimmannschaft:\s*([^\n]+)", body)
     away_match = re.search(r"Gastmannschaft:\s*([^\n]+)", body)
     if home_match and away_match:
         info["teams"] = f"{home_match.group(1).strip()} - {away_match.group(1).strip()}"
+    else:
+        teams_match = re.search(r"Begegnung:\s*([^\n]+)", body, re.IGNORECASE)
+        if teams_match:
+            info["teams"] = teams_match.group(1).strip()
 
     hall_match = re.search(r"Spielhalle:\s*([^\n]+?)\s*\((\d{3}[A-Z]\d{3})\)", body)
     if hall_match:
@@ -134,6 +161,16 @@ def _extract_basic_fields(body: str) -> dict:
         address_match = re.search(r"Spielhalle:.*\)\s*\n\s*([^\n]+)", body)
         if address_match:
             info["address"] = address_match.group(1).strip()
+    else:
+        hall_code_match = re.search(r"Halle:\s*(\d{3}[A-Z]\d{3})", body, re.IGNORECASE)
+        if hall_code_match:
+            hall_code = hall_code_match.group(1).strip()
+            info["hall_code"] = hall_code
+            info["location"] = hall_code
+        else:
+            hall_location_match = re.search(r"Halle:\s*([^\n]+)", body, re.IGNORECASE)
+            if hall_location_match:
+                info["location"] = hall_location_match.group(1).strip()
 
     refs: list[str] = []
     for label in ("SR1", "SR2", "Schiedsrichter 1", "Schiedsrichter 2"):
@@ -258,35 +295,33 @@ class RefereeService:
         multiple: bool,
     ) -> None:
         assignment_type = assignment.type
-        prefix = "BASKETBALL 2x" if multiple else "BASKETBALL"
-        location_text = self._notification_location(assignment)
         location_for_event = self._event_location(assignment)
+        when_where_line = self._when_where_line(assignment)
 
         if assignment_type == "ANSETZUNG":
             event_id = self._calendar.create_referee_event(assignment, location_for_event)
             if event_id:
                 self._update_event_map(None, assignment, event_id)
-            conflict_icon = self._check_game_conflict(assignment_datetime(assignment))
-            message = (
-                f"{conflict_icon} {prefix} ANSETZUNG\n"
-                f"{assignment.liga or '-'}\n"
-                f"{assignment.teams or '-'}\n"
-                f"{assignment.date or '-'} {assignment.time or '-'} {location_text}"
+            conflict = self._check_game_conflict(assignment_datetime(assignment))
+            icon = self._icon_for_conflict(conflict)
+            message = self._notification_text(
+                icon=icon,
+                assignment=assignment,
+                assignment_type=assignment_type,
+                when_where_line=when_where_line,
+                multiple=multiple,
             )
-            await self._notify_admin(context, message, disable_notification="BLOCK" in message)
+            await self._notify_admin(context, message, disable_notification=conflict == "BLOCK")
             return
 
         if assignment_type == "UMBESETZUNG":
-            available, reason = self._check_availability(assignment)
-            status = "Available" if available else "Not available"
-            if reason:
-                status = f"{status} - {reason}"
-            message = (
-                f"{prefix} UMBESETZUNG\n"
-                f"{assignment.liga or '-'}\n"
-                f"{assignment.teams or '-'}\n"
-                f"{assignment.date or '-'} {assignment.time or '-'} {location_text}\n"
-                f"{status}"
+            icon, _status_text, available = self._umbesetzung_availability(assignment)
+            message = self._notification_text(
+                icon=icon,
+                assignment=assignment,
+                assignment_type=assignment_type,
+                when_where_line=when_where_line,
+                multiple=multiple,
             )
             await self._notify_admin(context, message, disable_notification=not available)
             return
@@ -294,7 +329,7 @@ class RefereeService:
         if assignment_type in {"VERLEGUNG", "AENDERUNG"}:
             event_id = self._find_existing_event(assignment)
             available, reason = self._check_availability(assignment)
-            warning = f"\nWarning: {reason}" if not available and reason else ""
+            icon = ICON_FREE if available else ICON_BUSY
             if event_id:
                 self._calendar.update_referee_event(event_id, assignment, location_for_event)
                 old_assignment = None
@@ -307,15 +342,19 @@ class RefereeService:
                         hall_code=assignment.old_hall_code or assignment.hall_code,
                     )
                 self._update_event_map(old_assignment, assignment, event_id)
-                found_text = ""
+                suffix = ""
             else:
-                found_text = " (event not found)"
-            message = (
-                f"{prefix} {assignment_type}{found_text}\n"
-                f"{assignment.liga or '-'}\n"
-                f"{assignment.teams or '-'}\n"
-                f"{assignment.date or '-'} {assignment.time or '-'} {location_text}{warning}"
+                suffix = " (event not found)"
+            message = self._notification_text(
+                icon=icon,
+                assignment=assignment,
+                assignment_type=assignment_type,
+                when_where_line=when_where_line,
+                multiple=multiple,
+                header_suffix=suffix,
             )
+            if reason and not available:
+                message = f"{message}\n{reason}"
             await self._notify_admin(context, message)
             return
 
@@ -323,23 +362,26 @@ class RefereeService:
             event_id = self._find_existing_event(assignment)
             if event_id:
                 self._calendar.cancel_referee_event(event_id, assignment, CANCEL_COLOR_ID)
-                text_suffix = "\nMarked as cancelled."
+                suffix = " (cancelled)"
             else:
-                text_suffix = " (event not found)"
-            message = (
-                f"{prefix} {assignment_type}{text_suffix}\n"
-                f"{assignment.liga or '-'}\n"
-                f"{assignment.teams or '-'}\n"
-                f"{assignment.date or '-'} {assignment.time or '-'} {location_text}"
+                suffix = " (event not found)"
+            message = self._notification_text(
+                icon=ICON_UNKNOWN,
+                assignment=assignment,
+                assignment_type=assignment_type,
+                when_where_line=when_where_line,
+                multiple=multiple,
+                header_suffix=suffix,
             )
             await self._notify_admin(context, message)
             return
 
-        message = (
-            f"{prefix} {assignment_type}\n"
-            f"{assignment.liga or '-'}\n"
-            f"{assignment.teams or '-'}\n"
-            f"{assignment.date or '-'} {assignment.time or '-'} {location_text}"
+        message = self._notification_text(
+            icon=ICON_UNKNOWN,
+            assignment=assignment,
+            assignment_type=assignment_type,
+            when_where_line=when_where_line,
+            multiple=multiple,
         )
         await self._notify_admin(context, message)
 
@@ -352,26 +394,89 @@ class RefereeService:
         await context.bot.send_message(
             chat_id=self._config.miron_id,
             text=text,
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True,
             disable_notification=disable_notification,
         )
 
+    def _notification_text(
+        self,
+        icon: str,
+        assignment: RefereeAssignment,
+        assignment_type: str,
+        when_where_line: str,
+        multiple: bool = False,
+        header_suffix: str = "",
+    ) -> str:
+        type_label = f"2x {assignment_type}" if multiple else assignment_type
+        header = f"{icon} {type_label} @ {self._liga_short_for_notification(assignment)}"
+        if assignment.spielnummer:
+            header = f"{header} #{assignment.spielnummer}"
+        if header_suffix:
+            header = f"{header}{header_suffix}"
+        return "\n".join([html.escape(header), when_where_line, html.escape(assignment.teams or "-")])
+
+    def _liga_short_for_notification(self, assignment: RefereeAssignment) -> str:
+        if not assignment.liga:
+            return "-"
+        return league_short_name(assignment)
+
+    def _when_where_line(self, assignment: RefereeAssignment) -> str:
+        date_text = self._weekday_date(assignment.date)
+        time_text = assignment.time or "-"
+        address_text, maps_url = self._notification_address_with_map(assignment)
+
+        line = html.escape(f"{date_text} {time_text}".strip())
+        if address_text:
+            if maps_url:
+                url = html.escape(maps_url, quote=True)
+                label = html.escape(address_text)
+                line = f'{line} @ <a href="{url}">{label}</a>'
+            else:
+                line = f"{line} @ {html.escape(address_text)}"
+        return line
+
+    def _notification_address_with_map(self, assignment: RefereeAssignment) -> tuple[str, str | None]:
+        base_address = self._event_location(assignment) or assignment.location or assignment.hall_code or ""
+        display_address = base_address
+
+        if assignment.hall_code and assignment.hall_code not in display_address:
+            display_address = f"{display_address} ({assignment.hall_code})".strip()
+
+        map_query = base_address or assignment.address or assignment.location or assignment.hall_code
+        maps_url = f"https://maps.google.com/?q={quote_plus(map_query)}" if map_query else None
+        return display_address.strip(), maps_url
+
+    @staticmethod
+    def _weekday_date(date_text: str | None) -> str:
+        if not date_text:
+            return "-"
+        try:
+            parsed = dt.datetime.strptime(date_text, "%d.%m.%Y")
+        except ValueError:
+            return date_text
+        return parsed.strftime("%A %d.%m.%Y")
+
+    @staticmethod
+    def _icon_for_conflict(conflict: str) -> str:
+        if conflict == "BLOCK":
+            return ICON_BUSY
+        if conflict == "WARN":
+            return ICON_CLOSE
+        if conflict == "OK":
+            return ICON_FREE
+        return ICON_UNKNOWN
+
     def _event_location(self, assignment: RefereeAssignment) -> str | None:
+        if assignment.address:
+            return sanitize_event_location(assignment.address)
         if assignment.hall_code:
             gym = self._gym.get_gym_address(assignment.hall_code)
             if gym:
-                return f"{gym} ({assignment.hall_code})"
-            if assignment.location:
-                return f"{assignment.location} ({assignment.hall_code})"
-            return assignment.hall_code
-        return assignment.address or assignment.location
-
-    def _notification_location(self, assignment: RefereeAssignment) -> str:
-        if not assignment.hall_code:
-            return f"@ {assignment.location}" if assignment.location else ""
-        if assignment.hall_code == assignment.location:
-            gym = self._gym.get_gym_address(assignment.hall_code)
-            return f"@ {gym or assignment.hall_code} ({assignment.hall_code})"
-        return f"@ {assignment.location or '-'} ({assignment.hall_code})"
+                return sanitize_event_location(gym)
+        if assignment.location:
+            return sanitize_event_location(assignment.location)
+        return assignment.hall_code
 
     def _load_event_map(self) -> dict[str, str]:
         return read_json(self._config.referee_events_file, {})
@@ -426,19 +531,47 @@ class RefereeService:
         target_dt = assignment_datetime(assignment)
         if not target_dt:
             return None
-        events = self._calendar.get_referee_events_for_day(target_dt)
+
         teams = clean_text(assignment.teams)
-        for event in events:
-            start_raw = event.get("start", {}).get("dateTime")
-            event_start = parse_google_datetime(start_raw)
-            if not event_start:
-                continue
-            summary = clean_text(event.get("summary", ""))
-            if teams and teams in summary and abs((event_start - target_dt).total_seconds()) < 3600:
-                event_id = event.get("id")
-                if event_id:
-                    return event_id
+        hall_code = clean_text(assignment.hall_code)
+
+        for event in self._calendar.get_referee_events_for_day(target_dt):
+            event_id = self._matching_event_id(event, target_dt, teams, hall_code)
+            if event_id:
+                return event_id
+
+        future_events = self._calendar.get_future_referee_game_events(target_dt - dt.timedelta(hours=6))
+        for event in future_events:
+            event_id = self._matching_event_id(event, target_dt, teams, hall_code)
+            if event_id:
+                return event_id
         return None
+
+    def _matching_event_id(
+        self,
+        event: dict[str, object],
+        target_dt: dt.datetime,
+        teams: str,
+        hall_code: str,
+    ) -> str | None:
+        start_raw = event.get("start", {}).get("dateTime") if isinstance(event.get("start"), dict) else None
+        event_start = parse_google_datetime(start_raw)
+        if not event_start:
+            return None
+        if abs((event_start - target_dt).total_seconds()) >= 7200:
+            return None
+
+        summary = clean_text(str(event.get("summary", "")))
+        description = clean_text(str(event.get("description", "")))
+        location = clean_text(str(event.get("location", "")))
+
+        if teams and teams not in summary and teams not in description:
+            return None
+        if hall_code and hall_code not in description and hall_code not in location:
+            return None
+
+        event_id = event.get("id")
+        return str(event_id) if event_id else None
 
     def _check_availability(self, assignment: RefereeAssignment) -> tuple[bool, str | None]:
         target_dt = assignment_datetime(assignment)
@@ -461,6 +594,66 @@ class RefereeService:
             if diff_hours < buffer_hours:
                 return False, f"Conflict within {buffer_hours}h."
         return True, None
+
+    def _umbesetzung_availability(self, assignment: RefereeAssignment) -> tuple[str, str, bool]:
+        target_start = assignment_datetime(assignment)
+        if not target_start:
+            return ICON_BUSY, "BUSY (missing date/time).", False
+
+        target_end = target_start + dt.timedelta(hours=2)
+        min_gap_hours: float | None = None
+
+        for event_start, event_end in self._availability_event_intervals(target_start):
+            gap_hours = self._interval_gap_hours(target_start, target_end, event_start, event_end)
+            if min_gap_hours is None or gap_hours < min_gap_hours:
+                min_gap_hours = gap_hours
+
+        if min_gap_hours is None:
+            return ICON_FREE, "FREE (no nearby calendar events).", True
+        if min_gap_hours < 1:
+            return ICON_BUSY, f"BUSY ({min_gap_hours:.1f}h gap).", False
+        if min_gap_hours < 2:
+            return ICON_CLOSE, f"FREE but close ({min_gap_hours:.1f}h gap).", True
+        return ICON_FREE, f"FREE ({min_gap_hours:.1f}h gap).", True
+
+    def _availability_event_intervals(
+        self,
+        target_start: dt.datetime,
+    ) -> list[tuple[dt.datetime, dt.datetime]]:
+        intervals: list[tuple[dt.datetime, dt.datetime]] = []
+
+        referee_events = self._calendar.get_future_referee_game_events(target_start - dt.timedelta(hours=6))
+        for event in referee_events:
+            start_raw = event.get("start", {}).get("dateTime")
+            end_raw = event.get("end", {}).get("dateTime")
+            event_start = parse_google_datetime(start_raw)
+            if not event_start:
+                continue
+            event_end = parse_google_datetime(end_raw) or (event_start + dt.timedelta(hours=2))
+            intervals.append((event_start, event_end))
+
+        for day_offset in (-1, 0, 1):
+            day = target_start + dt.timedelta(days=day_offset)
+            for event in self._calendar.get_events_for_date(day):
+                if event.is_all_day or not event.start:
+                    continue
+                event_end = event.end or (event.start + dt.timedelta(hours=2))
+                intervals.append((event.start, event_end))
+
+        return intervals
+
+    @staticmethod
+    def _interval_gap_hours(
+        start_a: dt.datetime,
+        end_a: dt.datetime,
+        start_b: dt.datetime,
+        end_b: dt.datetime,
+    ) -> float:
+        if end_a <= start_b:
+            return (start_b - end_a).total_seconds() / 3600
+        if end_b <= start_a:
+            return (start_a - end_b).total_seconds() / 3600
+        return 0.0
 
     def _check_game_conflict(self, new_game_dt: dt.datetime | None) -> str:
         if not new_game_dt:

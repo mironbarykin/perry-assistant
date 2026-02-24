@@ -29,6 +29,7 @@ def build_application(services: AppServices) -> Application:
 
     app.add_handler(CommandHandler("absence", absences.absence))
     app.add_handler(CommandHandler("absences", absences.absences_all))
+    app.add_handler(CommandHandler("excused", absences.absences_excused))
     app.add_handler(CommandHandler("excuse", absences.excuse))
 
     published_conv = ConversationHandler(
