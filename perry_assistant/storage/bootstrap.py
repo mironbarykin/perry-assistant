@@ -29,6 +29,10 @@ def bootstrap_data(config: AppConfig) -> None:
     _ensure_json_file(config.gyms_cache_file, {})
     _ensure_json_file(config.school_absence_file, [])
     _ensure_json_file(config.school_timetable_file, {})
+    _ensure_json_file(config.uportal_seen_rows_file, {})
+    _ensure_json_file(config.uportal_window_state_file, {})
+    _ensure_json_file(config.uportal_ignored_rows_file, {})
+    _ensure_json_file(config.uportal_game_catalog_file, {})
 
     _copy_if_missing(Path("google_calendar_benny_access.json"), config.credentials_file)
     _copy_if_missing(Path("token.pickle"), config.token_pickle_file)
@@ -73,4 +77,3 @@ def _migrate_legacy_absence_file(data_dir: Path, new_file: Path) -> None:
                 deduped.append(item)
             write_json(new_file, deduped)
         legacy_file.unlink(missing_ok=True)
-

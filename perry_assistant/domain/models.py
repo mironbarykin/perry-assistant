@@ -52,3 +52,18 @@ class AbsenceRecord:
     subject: str
     excused: bool = False
 
+
+@dataclass(slots=True)
+class UportalGame:
+    detail_id: str
+    liga: str
+    number: str
+    home_team: str
+    away_team: str
+    date: str
+    time: str
+    hall: str
+    original_referee: str
+    ust: str
+    distance_km: float
+    detail_url: str = ""

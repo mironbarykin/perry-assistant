@@ -12,6 +12,10 @@ def test_bootstrap_creates_files(app_config):
     assert app_config.referee_events_file.exists()
     assert app_config.school_absence_file.exists()
     assert app_config.school_timetable_file.exists()
+    assert app_config.uportal_seen_rows_file.exists()
+    assert app_config.uportal_window_state_file.exists()
+    assert app_config.uportal_ignored_rows_file.exists()
+    assert app_config.uportal_game_catalog_file.exists()
 
 
 def test_legacy_school_absence_migration(app_config):
@@ -24,4 +28,3 @@ def test_legacy_school_absence_migration(app_config):
     assert migrated
     assert migrated[0]["subject"] == "Math"
     assert not legacy_file.exists()
-

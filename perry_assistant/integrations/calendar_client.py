@@ -33,6 +33,14 @@ def parse_google_datetime(raw: str | None) -> dt.datetime | None:
         return None
 
 
+def utc_day_bounds(target_date: dt.datetime) -> tuple[str, str]:
+    local = target_date if target_date.tzinfo else target_date.replace(tzinfo=BERLIN_TZ)
+    local = local.astimezone(BERLIN_TZ)
+    start_local = dt.datetime(local.year, local.month, local.day, 0, 0, 0, tzinfo=BERLIN_TZ)
+    end_local = dt.datetime(local.year, local.month, local.day, 23, 59, 59, tzinfo=BERLIN_TZ)
+    return start_local.astimezone(dt.UTC).isoformat(), end_local.astimezone(dt.UTC).isoformat()
+
+
 class CalendarClient:
     def __init__(self, config: AppConfig) -> None:
         self._config = config
@@ -57,18 +65,7 @@ class CalendarClient:
 
     def get_events_for_date(self, target_date: dt.datetime) -> list[EventView]:
         service = self._service()
-        start = target_date.astimezone(dt.UTC).replace(
-            hour=0,
-            minute=0,
-            second=0,
-            microsecond=0,
-        ).isoformat()
-        end = target_date.astimezone(dt.UTC).replace(
-            hour=23,
-            minute=59,
-            second=59,
-            microsecond=0,
-        ).isoformat()
+        start, end = utc_day_bounds(target_date)
 
         events_all: list[EventView] = []
         for calendar in self.get_all_calendars():
@@ -128,19 +125,7 @@ class CalendarClient:
     def get_referee_events_for_day(self, target_date: dt.datetime) -> list[dict[str, Any]]:
         service = self._service()
         calendar_id = self.get_calendar_id_by_name(REFEREE_CALENDAR_NAME)
-
-        start = target_date.astimezone(dt.UTC).replace(
-            hour=0,
-            minute=0,
-            second=0,
-            microsecond=0,
-        ).isoformat()
-        end = target_date.astimezone(dt.UTC).replace(
-            hour=23,
-            minute=59,
-            second=59,
-            microsecond=0,
-        ).isoformat()
+        start, end = utc_day_bounds(target_date)
 
         return service.events().list(
             calendarId=calendar_id,

@@ -7,6 +7,7 @@ from perry_assistant.services.absence_service import AbsenceService
 from perry_assistant.services.notification_service import NotificationService
 from perry_assistant.services.referee_service import RefereeService
 from perry_assistant.services.schedule_service import ScheduleService
+from perry_assistant.services.uportal_service import UportalService
 
 
 @dataclass(slots=True)
@@ -16,4 +17,4 @@ class AppServices:
     notification_service: NotificationService
     referee_service: RefereeService
     absence_service: AbsenceService
-
+    uportal_service: UportalService

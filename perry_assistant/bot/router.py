@@ -3,6 +3,7 @@ from __future__ import annotations
 from telegram.ext import (
     Application,
     ApplicationBuilder,
+    CallbackQueryHandler,
     CommandHandler,
     ConversationHandler,
     MessageHandler,
@@ -10,7 +11,7 @@ from telegram.ext import (
 )
 
 from perry_assistant.bot.error_handler import error_handler
-from perry_assistant.bot.handlers import absences, admin, common, referee, schedule
+from perry_assistant.bot.handlers import absences, admin, common, referee, schedule, uportal
 from perry_assistant.domain.types import AppServices
 
 
@@ -25,6 +26,8 @@ def build_application(services: AppServices) -> Application:
     app.add_handler(CommandHandler("morning", schedule.morning))
     app.add_handler(CommandHandler("myid", common.myid))
     app.add_handler(CommandHandler("emails", referee.emails))
+    app.add_handler(CommandHandler("uportal", uportal.uportal))
+    app.add_handler(CommandHandler("uportal_ignored", uportal.uportal_ignored))
     app.add_handler(CommandHandler("parents", admin.parents))
 
     app.add_handler(CommandHandler("absence", absences.absence))
@@ -55,10 +58,12 @@ def build_application(services: AppServices) -> Application:
     app.add_handler(set_time_conv)
 
     app.add_handler(MessageHandler(filters.Regex(r"^4/.*"), referee.handle_auth_code))
+    app.add_handler(CallbackQueryHandler(uportal.ignore_uportal_game, pattern=r"^uio:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, common.button_handler))
     app.add_error_handler(error_handler)
 
     app.job_queue.run_repeating(referee.process_basketball_emails_job, interval=300, first=0)
+    app.job_queue.run_repeating(uportal.process_uportal_schedule_tick_job, interval=60, first=0)
     services.notification_service.schedule_all(
         app=app,
         user_callback=schedule.send_daily_notification_job,

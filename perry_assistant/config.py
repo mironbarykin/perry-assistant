@@ -26,10 +26,17 @@ class AppConfig:
     gyms_cache_file: Path
     school_absence_file: Path
     school_timetable_file: Path
+    uportal_seen_rows_file: Path
+    uportal_window_state_file: Path
+    uportal_ignored_rows_file: Path
+    uportal_game_catalog_file: Path
     basketball_senders: tuple[str, ...]
     home_coords: dict[str, float]
     school_coords: dict[str, float]
     scopes: tuple[str, ...]
+    uportal_login_name: str | None
+    uportal_login_password: str | None
+    uportal_login_url: str
 
 
 def _to_path(value: str | None, default: str) -> Path:
@@ -61,6 +68,10 @@ def load_config() -> AppConfig:
         gyms_cache_file=data_dir / "gyms_cache.json",
         school_absence_file=data_dir / "school_absences.json",
         school_timetable_file=data_dir / "school_timetable.json",
+        uportal_seen_rows_file=data_dir / "uportal_seen_rows.json",
+        uportal_window_state_file=data_dir / "uportal_window_state.json",
+        uportal_ignored_rows_file=data_dir / "uportal_ignored_rows.json",
+        uportal_game_catalog_file=data_dir / "uportal_game_catalog.json",
         basketball_senders=(
             "*@uportal-wbv.de",
             "noreply@basketball-bund.net",
@@ -72,5 +83,10 @@ def load_config() -> AppConfig:
             "https://www.googleapis.com/auth/calendar",
             "https://www.googleapis.com/auth/gmail.readonly",
         ),
+        uportal_login_name=os.getenv("UPORTAL_LOGIN_NAME"),
+        uportal_login_password=os.getenv("UPORTAL_LOGIN_PASSWORD"),
+        uportal_login_url=os.getenv(
+            "UPORTAL_LOGIN_URL",
+            "https://www.uportal-wbv.de/index.php?o=login&cookie=done",
+        ),
     )
-
