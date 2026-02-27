@@ -263,3 +263,24 @@ def test_parse_games_supports_datum_zeit_header_and_skips_einladung_rows(app_con
     assert game.original_referee == "N.B.(1)"
     assert game.ust == "K02"
     assert game.distance_km == 34.0
+
+
+def test_parse_games_marks_row_umb_offen(app_config):
+    client = UportalClient(app_config)
+    html = """
+    <div id="col3_content">
+      <table>
+        <tr><th>Liga</th><th>Nr.</th><th>Heim</th><th></th><th>Gast</th><th>Datum</th><th>Zeit</th><th>Halle</th><th>ursp. SR</th><th>UST</th><th>Entf.</th></tr>
+        <tr><td colspan="11">Don, 19.03.2026</td></tr>
+        <tr class="row_umb_offen">
+          <td><a href="index.php?o=meine_ansetzungen&sm=offene_umbesetzungen&id=15672">D-KLH2</a></td>
+          <td>86</td><td>TV Grafenberg 3</td><td>-</td><td>TG Dusseldorf 6</td>
+          <td>Don, 19.03.2026</td><td>19:30</td><td>201B631</td><td>N.B.(1)</td><td>K06</td><td>12 km</td>
+        </tr>
+      </table>
+    </div>
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    rows = client._parse_games(soup)  # noqa: SLF001
+    assert len(rows) == 1
+    assert rows[0].is_umb_offen is True

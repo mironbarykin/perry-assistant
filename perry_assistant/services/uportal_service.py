@@ -32,7 +32,7 @@ WINDOWS = {
 
 IGNORE_CALLBACK_PREFIX = "uio:"
 IGNORE_GAME_CALLBACK_PREFIX = "uio:g:"
-IGNORE_DAY_CALLBACK_PREFIX = "uio:d:"
+IGNORE_ALL_CALLBACK_PREFIX = "uio:a:"
 MAX_BUTTONS_PER_CHUNK = 20
 
 
@@ -67,6 +67,7 @@ class UportalService:
         self._referee_event_intervals_cache: list[tuple[dt.datetime, dt.datetime]] | None = None
         self._last_raw_rows_debug_file: str = ""
         self._hall_address_cache: dict[str, str] = {}
+        self._ignore_groups: dict[str, list[str]] = {}
 
     async def run_manual_scan(self, context: ContextTypes.DEFAULT_TYPE) -> None:
         await self._scan_and_notify(context, reason="manual")
@@ -167,28 +168,32 @@ class UportalService:
         line = self._ignored_line(game_data)
         return True, f"Ignored: {line}"
 
-    def ignore_day(self, date_text: str) -> tuple[bool, str]:
-        try:
-            dt.datetime.strptime(date_text, "%d.%m.%Y")
-        except ValueError:
-            return False, "Uportal: invalid day."
+    def ignore_all_in_group(self, group_id: str) -> tuple[bool, str]:
+        ignore_ids = self._ignore_groups.get(group_id, [])
+        if not ignore_ids:
+            return False, "Uportal: ignore group expired. Run /uportal again."
 
+        catalog = read_json(self._config.uportal_game_catalog_file, {})
         ignored = read_json(self._config.uportal_ignored_rows_file, {})
-        day_key = self._ignored_day_key(date_text)
-        if day_key in ignored:
-            return False, f"Uportal: day {date_text} is already ignored."
+        added = 0
+        for ignore_id in ignore_ids:
+            if ignore_id in ignored:
+                continue
+            game_data = catalog.get(ignore_id)
+            if not isinstance(game_data, dict):
+                continue
+            payload = dict(game_data)
+            payload["ignored_at"] = dt.datetime.now(dt.UTC).isoformat()
+            ignored[ignore_id] = payload
+            added += 1
 
-        ignored[day_key] = {
-            "type": "day",
-            "date": date_text,
-            "ignored_at": dt.datetime.now(dt.UTC).isoformat(),
-        }
         write_json(self._config.uportal_ignored_rows_file, ignored)
-        return True, f"Ignored whole day: {self._weekday_date_label(date_text)}"
+        return True, f"Ignored {added} game(s) from this message."
 
     async def _scan_and_notify(self, context: ContextTypes.DEFAULT_TYPE, reason: str) -> None:
         try:
-            rows = self._uportal_client.fetch_open_games()
+            rows_raw = self._uportal_client.fetch_open_games()
+            rows = self._dedupe_rows(rows_raw)
             self._last_raw_rows_debug_file = self._dump_raw_rows_debug(rows, reason=reason)
             self._update_game_catalog(rows)
             evaluated, counts = self._evaluate_rows(rows)
@@ -227,6 +232,32 @@ class UportalService:
             debug_summary = self._manual_debug_summary()
             if debug_summary and reason == "manual":
                 await context.bot.send_message(chat_id=self._config.miron_id, text=debug_summary)
+
+    def _dedupe_rows(self, rows: list[UportalGame]) -> list[UportalGame]:
+        by_key: dict[tuple[str, str, str], UportalGame] = {}
+        for row in rows:
+            key = (row.date.strip(), row.hall.strip(), row.number.strip())
+            existing = by_key.get(key)
+            if existing is None:
+                by_key[key] = row
+                continue
+            by_key[key] = self._merge_duplicate_game(existing, row)
+        return list(by_key.values())
+
+    @staticmethod
+    def _merge_duplicate_game(primary: UportalGame, candidate: UportalGame) -> UportalGame:
+        best = primary
+        other = candidate
+        if candidate.is_umb_offen and not primary.is_umb_offen:
+            best = candidate
+            other = primary
+        if not best.detail_url and other.detail_url:
+            best.detail_url = other.detail_url
+        if other.is_umb_offen:
+            best.is_umb_offen = True
+        if best.distance_km > other.distance_km:
+            best.distance_km = other.distance_km
+        return best
 
     def _dump_raw_rows_debug(self, rows: list[UportalGame], reason: str) -> str:
         timestamp = dt.datetime.now(dt.UTC).strftime("%Y%m%dT%H%M%S%fZ")
@@ -269,7 +300,7 @@ class UportalService:
                 fingerprint = self._fingerprint(row)
                 status, icon = self._availability(row)
 
-                if self._is_day_ignored(ignored, row.date) or ignore_id in ignored:
+                if ignore_id in ignored:
                     kind = "ignored"
                 else:
                     previous = seen.get(identity)
@@ -337,13 +368,6 @@ class UportalService:
     def _ignore_id(self, game: UportalGame) -> str:
         digest = hashlib.sha1(self._ignore_key(game).encode("utf-8")).hexdigest()  # noqa: S324
         return digest[:16]
-
-    @staticmethod
-    def _ignored_day_key(date_text: str) -> str:
-        return f"__day__{date_text}"
-
-    def _is_day_ignored(self, ignored: dict[str, dict], date_text: str) -> bool:
-        return self._ignored_day_key(date_text) in ignored
 
     @staticmethod
     def _fingerprint(game: UportalGame) -> str:
@@ -495,11 +519,11 @@ class UportalService:
             day_items = sorted(grouped[date], key=self._sort_key)
             header_lines = [f"Uportal report ({html.escape(reason)})", self._weekday_date_label(date)]
             header_len = sum(len(line) + 1 for line in header_lines)
-            day_button = ("👎 Ignore day", f"{IGNORE_DAY_CALLBACK_PREFIX}{date}")
 
             current_lines = header_lines.copy()
             current_len = header_len
-            current_buttons: list[tuple[str, str]] = [day_button]
+            current_buttons: list[tuple[str, str]] = []
+            current_chunk_ignore_ids: list[str] = []
 
             for item in day_items:
                 line = self._row_line(item)
@@ -509,16 +533,23 @@ class UportalService:
                     and (current_len + add_len > 3500 or len(current_buttons) >= MAX_BUTTONS_PER_CHUNK)
                     and len(current_lines) > len(header_lines)
                 ):
-                    chunks.append(RenderedChunk(text="\n".join(current_lines).strip(), buttons=current_buttons.copy()))
+                    group_id = self._remember_ignore_group(current_chunk_ignore_ids)
+                    buttons_with_all = [("👎 Ignore all", f"{IGNORE_ALL_CALLBACK_PREFIX}{group_id}"), *current_buttons]
+                    chunks.append(RenderedChunk(text="\n".join(current_lines).strip(), buttons=buttons_with_all))
                     current_lines = header_lines.copy()
                     current_len = header_len
-                    current_buttons = [day_button]
+                    current_buttons = []
+                    current_chunk_ignore_ids = []
 
                 current_lines.append(line)
                 current_len += add_len
-                current_buttons.append((self._ignore_button_label(item.game), f"{IGNORE_GAME_CALLBACK_PREFIX}{self._ignore_id(item.game)}"))
+                ignore_id = self._ignore_id(item.game)
+                current_chunk_ignore_ids.append(ignore_id)
+                current_buttons.append((self._ignore_button_label(item.game), f"{IGNORE_GAME_CALLBACK_PREFIX}{ignore_id}"))
 
-            chunks.append(RenderedChunk(text="\n".join(current_lines).strip(), buttons=current_buttons.copy()))
+            group_id = self._remember_ignore_group(current_chunk_ignore_ids)
+            buttons_with_all = [("👎 Ignore all", f"{IGNORE_ALL_CALLBACK_PREFIX}{group_id}"), *current_buttons]
+            chunks.append(RenderedChunk(text="\n".join(current_lines).strip(), buttons=buttons_with_all))
 
         return chunks
 
@@ -527,8 +558,9 @@ class UportalService:
         marker = f"{item.icon}{kind_badge}" if kind_badge else item.icon
         game = item.game
         distance = int(game.distance_km) if game.distance_km.is_integer() else round(game.distance_km, 1)
+        priority_badge = " 🫡" if game.is_umb_offen else ""
         address = self._address_for_hall(game.hall)
-        maps_url = f"https://maps.google.com/?q={quote_plus(address)}" if address and address != game.hall else ""
+        maps_url = f"https://maps.google.com/?q={quote_plus(address)}" if address else ""
         location_part = (
             f'<a href="{html.escape(maps_url, quote=True)}">{html.escape(address)}</a>'
             if maps_url
@@ -539,12 +571,23 @@ class UportalService:
             league_part = f'<a href="{html.escape(game.detail_url, quote=True)}">{league_part}</a>'
         return (
             f"{marker} @ {html.escape(game.time)} {location_part} ({distance} km) / "
-            f"{league_part} {html.escape(game.home_team)} - {html.escape(game.away_team)}"
+            f"{league_part} {html.escape(game.home_team)} - {html.escape(game.away_team)}{priority_badge}"
         )
 
     @staticmethod
     def _ignore_button_label(game: UportalGame) -> str:
         return f"👎 {game.time} {game.liga} #{game.number}"
+
+    def _remember_ignore_group(self, ignore_ids: list[str]) -> str:
+        cleaned = sorted({item for item in ignore_ids if item})
+        seed = "|".join(cleaned) + "|" + dt.datetime.now(dt.UTC).isoformat()
+        group_id = hashlib.sha1(seed.encode("utf-8")).hexdigest()[:12]  # noqa: S324
+        self._ignore_groups[group_id] = cleaned
+        if len(self._ignore_groups) > 200:
+            oldest = list(self._ignore_groups.keys())[:-200]
+            for key in oldest:
+                self._ignore_groups.pop(key, None)
+        return group_id
 
     def _address_for_hall(self, hall_code: str) -> str:
         code = (hall_code or "").strip()
@@ -553,9 +596,9 @@ class UportalService:
         cached = self._hall_address_cache.get(code)
         if cached:
             return cached
-        found = self._gym.get_gym_address(code) or code
-        self._hall_address_cache[code] = found
-        return found
+        address = self._gym.get_gym_address(code) or code
+        self._hall_address_cache[code] = address
+        return address
 
     @staticmethod
     def _weekday_date_label(date_text: str) -> str:
@@ -576,29 +619,19 @@ class UportalService:
         if not ignored:
             return ["No ignored Uportal games."]
 
-        ignored_days = sorted(
-            [entry for entry in ignored.values() if isinstance(entry, dict) and entry.get("type") == "day"],
-            key=lambda entry: dt.datetime.strptime(str(entry.get("date", "")), "%d.%m.%Y"),
-        )
         grouped: dict[str, list[dict]] = {}
         for entry in ignored.values():
-            if not isinstance(entry, dict) or entry.get("type") == "day":
+            if not isinstance(entry, dict):
                 continue
             date_text = str(entry.get("date", ""))
             if not date_text:
                 continue
             grouped.setdefault(date_text, []).append(entry)
 
-        if not grouped and not ignored_days:
+        if not grouped:
             return ["No ignored Uportal games."]
 
         lines = ["Ignored Uportal games"]
-        if ignored_days:
-            lines.append("")
-            lines.append("Ignored whole days")
-            for entry in ignored_days:
-                lines.append(f"👎 {self._weekday_date_label(str(entry.get('date', '')))}")
-
         for date in sorted(grouped.keys(), key=lambda value: dt.datetime.strptime(value, "%d.%m.%Y")):
             lines.append("")
             lines.append(self._weekday_date_label(date))
@@ -612,7 +645,7 @@ class UportalService:
         shown_distance = int(distance) if distance.is_integer() else round(distance, 1)
         hall_code = str(game.get("hall", "-"))
         address = self._address_for_hall(hall_code)
-        maps_url = f"https://maps.google.com/?q={quote_plus(address)}" if address and address != hall_code else ""
+        maps_url = f"https://maps.google.com/?q={quote_plus(address)}" if address else ""
         location_part = (
             f'<a href="{html.escape(maps_url, quote=True)}">{html.escape(address)}</a>'
             if maps_url
@@ -622,9 +655,10 @@ class UportalService:
         detail_url = str(game.get("detail_url", ""))
         if detail_url:
             league_part = f'<a href="{html.escape(detail_url, quote=True)}">{league_part}</a>'
+        priority_badge = " 🫡" if bool(game.get("is_umb_offen")) else ""
         return (
             f"👎 @ {html.escape(str(game.get('time', '-')))} {location_part} ({shown_distance} km) / "
-            f"{league_part} {html.escape(str(game.get('home_team', '-')))} - {html.escape(str(game.get('away_team', '-')))}"
+            f"{league_part} {html.escape(str(game.get('home_team', '-')))} - {html.escape(str(game.get('away_team', '-')))}{priority_badge}"
         )
 
     @staticmethod
@@ -672,4 +706,3 @@ class UportalService:
                 return f"{base_summary}, rows_json={self._last_raw_rows_debug_file}"
             return f"Uportal debug: rows_json={self._last_raw_rows_debug_file}"
         return base_summary
-

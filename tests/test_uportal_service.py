@@ -149,7 +149,7 @@ def test_render_chunks_group_by_date_and_sort_by_time_then_distance(app_config):
 
     assert "28.02.2026" in chunks[1].text
     assert first_id3 < first_id2
-    assert chunks[0].buttons[0][0] == "👎 Ignore day"
+    assert chunks[0].buttons[0][0] == "👎 Ignore all"
 
 
 def test_evaluate_rows_fetches_calendar_events_once_per_game_day(app_config):
@@ -214,6 +214,17 @@ def test_row_line_includes_clickable_link_when_detail_url_present(app_config):
     assert '<a href="https://www.uportal-wbv.de/index.php?o=meine_ansetzungen&amp;sm=offene_umbesetzungen&amp;id=101">RE-KLH #101</a>' in line
 
 
+def test_row_line_marks_umb_offen_with_salute(app_config):
+    service = UportalService(app_config, _FakeUportalClient([]), _FakeCalendarClient(), rng=random.Random(0))
+    service._hall_address_cache["109N581"] = "Main Hall, 12345 City"  # noqa: SLF001
+    game = _row("777", "777", date="01.03.2026", time="16:00", distance_km=12.0)
+    game.is_umb_offen = True
+    item = EvaluatedGame(game=game, status="green", icon="🟢", kind="new")
+
+    line = service._row_line(item)  # noqa: SLF001
+    assert "🫡" in line
+
+
 def test_ignore_game_by_id_hides_row_from_report(app_config):
     service = UportalService(app_config, _FakeUportalClient([]), _FakeCalendarClient(), rng=random.Random(0))
     game = _row("301", "301", date="01.03.2026", time="12:00", distance_km=22.0)
@@ -228,17 +239,42 @@ def test_ignore_game_by_id_hides_row_from_report(app_config):
     assert counts["ignored"] == 1
 
 
-def test_ignore_day_hides_all_games_from_that_day(app_config):
+def test_ignore_all_in_group_hides_only_group_games(app_config):
     service = UportalService(app_config, _FakeUportalClient([]), _FakeCalendarClient(), rng=random.Random(0))
     row1 = _row("401", "401", date="01.03.2026", time="12:00")
     row2 = _row("402", "402", date="01.03.2026", time="14:00")
     row3 = _row("403", "403", date="02.03.2026", time="10:00")
+    id1 = service._ignore_id(row1)  # noqa: SLF001
+    id2 = service._ignore_id(row2)  # noqa: SLF001
+    id3 = service._ignore_id(row3)  # noqa: SLF001
 
-    ok, _ = service.ignore_day("01.03.2026")
+    write_json(
+        app_config.uportal_game_catalog_file,
+        {
+            id1: asdict(row1),
+            id2: asdict(row2),
+            id3: asdict(row3),
+        },
+    )
+    service._ignore_groups["grp1"] = [id1, id2]  # noqa: SLF001
+    ok, _ = service.ignore_all_in_group("grp1")
     assert ok is True
 
     evaluated, counts = service._evaluate_rows([row1, row2, row3])  # noqa: SLF001
     assert len(evaluated) == 1
     assert evaluated[0].game.detail_id == "403"
     assert counts["ignored"] == 2
+
+
+def test_dedupe_rows_merges_same_date_hall_number(app_config):
+    service = UportalService(app_config, _FakeUportalClient([]), _FakeCalendarClient(), rng=random.Random(0))
+    a = _row("a", "93", date="01.03.2026", time="12:00")
+    b = _row("b", "93", date="01.03.2026", time="12:00")
+    b.detail_url = "https://example.test/detail"
+    b.is_umb_offen = True
+
+    deduped = service._dedupe_rows([a, b])  # noqa: SLF001
+    assert len(deduped) == 1
+    assert deduped[0].detail_url == "https://example.test/detail"
+    assert deduped[0].is_umb_offen is True
 

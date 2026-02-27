@@ -252,6 +252,7 @@ class UportalClient:
                 ust=ust,
                 distance_km=distance_km,
                 detail_url=detail_url,
+                is_umb_offen=self._is_row_umb_offen(row_a),
             ),
             3,
         )
@@ -281,6 +282,7 @@ class UportalClient:
             ust=cells[9].get_text(" ", strip=True),
             distance_km=self._extract_distance(cells[10].get_text(" ", strip=True)),
             detail_url=detail_url,
+            is_umb_offen=self._is_row_umb_offen(row),
         )
 
     @staticmethod
@@ -432,6 +434,11 @@ class UportalClient:
             if values and values[0]:
                 return urljoin(base_url, href) if base_url else href
         return ""
+
+    @staticmethod
+    def _is_row_umb_offen(row) -> bool:
+        classes = row.get("class") or []
+        return any(str(value).strip().lower() == "row_umb_offen" for value in classes)
 
     @staticmethod
     def _looks_like_login_page(body: str) -> bool:

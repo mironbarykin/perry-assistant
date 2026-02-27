@@ -19,7 +19,7 @@ class _FakeUportalService:
         self.called = False
         self.ignored_called = False
         self.ignore_calls: list[str] = []
-        self.ignore_day_calls: list[str] = []
+        self.ignore_all_calls: list[str] = []
 
     async def run_manual_scan(self, context) -> None:
         self.called = True
@@ -31,9 +31,9 @@ class _FakeUportalService:
         self.ignore_calls.append(ignore_id)
         return True, f"Ignored: {ignore_id}"
 
-    def ignore_day(self, date_text: str) -> tuple[bool, str]:
-        self.ignore_day_calls.append(date_text)
-        return True, f"Ignored whole day: {date_text}"
+    def ignore_all_in_group(self, group_id: str) -> tuple[bool, str]:
+        self.ignore_all_calls.append(group_id)
+        return True, f"Ignored group: {group_id}"
 
 
 def _context_with_services(admin_id: int, service: _FakeUportalService):
@@ -103,12 +103,12 @@ def test_ignore_uportal_game_callback_calls_service():
     assert query_message.replies == ["Ignored: abc123"]
 
 
-def test_ignore_uportal_day_callback_calls_service():
+def test_ignore_uportal_all_callback_calls_service():
     query_message = _FakeMessage()
 
     class _FakeQuery:
         def __init__(self) -> None:
-            self.data = "uio:d:01.03.2026"
+            self.data = "uio:a:grp123"
             self.message = query_message
             self.answers: list[str] = []
 
@@ -123,5 +123,5 @@ def test_ignore_uportal_day_callback_calls_service():
 
     asyncio.run(ignore_uportal_game(update, context))
 
-    assert service.ignore_day_calls == ["01.03.2026"]
-    assert query_message.replies == ["Ignored whole day: 01.03.2026"]
+    assert service.ignore_all_calls == ["grp123"]
+    assert query_message.replies == ["Ignored group: grp123"]

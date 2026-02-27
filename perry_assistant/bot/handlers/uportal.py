@@ -6,7 +6,7 @@ from telegram.ext import CallbackContext, ContextTypes
 from perry_assistant.bot.handlers.common import get_services
 from perry_assistant.services.uportal_service import (
     IGNORE_CALLBACK_PREFIX,
-    IGNORE_DAY_CALLBACK_PREFIX,
+    IGNORE_ALL_CALLBACK_PREFIX,
     IGNORE_GAME_CALLBACK_PREFIX,
 )
 
@@ -63,9 +63,9 @@ async def ignore_uportal_game(update: Update, context: CallbackContext) -> None:
     if data.startswith(IGNORE_GAME_CALLBACK_PREFIX):
         ignore_id = data.removeprefix(IGNORE_GAME_CALLBACK_PREFIX).strip()
         ok, message = services.uportal_service.ignore_game_by_id(ignore_id)
-    elif data.startswith(IGNORE_DAY_CALLBACK_PREFIX):
-        date_text = data.removeprefix(IGNORE_DAY_CALLBACK_PREFIX).strip()
-        ok, message = services.uportal_service.ignore_day(date_text)
+    elif data.startswith(IGNORE_ALL_CALLBACK_PREFIX):
+        group_id = data.removeprefix(IGNORE_ALL_CALLBACK_PREFIX).strip()
+        ok, message = services.uportal_service.ignore_all_in_group(group_id)
     else:
         await query.answer("Unknown action.", show_alert=False)
         return

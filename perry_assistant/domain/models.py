@@ -67,3 +67,4 @@ class UportalGame:
     ust: str
     distance_km: float
     detail_url: str = ""
+    is_umb_offen: bool = False
