@@ -19,6 +19,7 @@ class GymClient:
 
     def __init__(self, config: AppConfig) -> None:
         self._cache_file = config.gyms_cache_file
+        self._cache: dict[str, str] | None = None
 
     def get_gym_address(self, gym_id: str | None) -> str | None:
         if not gym_id:
@@ -27,7 +28,7 @@ class GymClient:
         if not normalized_id:
             return None
 
-        cache: dict[str, str] = read_json(self._cache_file, {})
+        cache = self._load_cache()
         if normalized_id in cache:
             return cache[normalized_id]
 
@@ -36,6 +37,12 @@ class GymClient:
             cache[normalized_id] = found
             write_json(self._cache_file, cache)
         return found
+
+    def _load_cache(self) -> dict[str, str]:
+        if self._cache is None:
+            loaded = read_json(self._cache_file, {})
+            self._cache = loaded if isinstance(loaded, dict) else {}
+        return self._cache
 
     def _scrape_address(self, gym_id: str) -> str | None:
         payload = {

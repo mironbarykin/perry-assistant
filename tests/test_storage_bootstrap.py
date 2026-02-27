@@ -12,6 +12,7 @@ def test_bootstrap_creates_files(app_config):
     assert app_config.referee_events_file.exists()
     assert app_config.school_absence_file.exists()
     assert app_config.school_timetable_file.exists()
+    assert app_config.weather_location_file.exists()
     assert app_config.uportal_seen_rows_file.exists()
     assert app_config.uportal_window_state_file.exists()
     assert app_config.uportal_ignored_rows_file.exists()

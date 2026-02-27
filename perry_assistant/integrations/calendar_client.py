@@ -44,17 +44,30 @@ def utc_day_bounds(target_date: dt.datetime) -> tuple[str, str]:
 class CalendarClient:
     def __init__(self, config: AppConfig) -> None:
         self._config = config
+        self._service_cache = None
+        self._calendar_list_cache: list[dict[str, Any]] | None = None
+        self._calendar_list_cache_expires_at = dt.datetime.min.replace(tzinfo=dt.UTC)
 
     def _service(self):
+        if self._service_cache is not None:
+            return self._service_cache
         creds = None
         if self._config.token_pickle_file.exists():
             with self._config.token_pickle_file.open("rb") as token_file:
                 creds = pickle.load(token_file)
-        return build("calendar", "v3", credentials=creds)
+        self._service_cache = build("calendar", "v3", credentials=creds)
+        return self._service_cache
 
-    def get_all_calendars(self) -> list[dict[str, Any]]:
+    def get_all_calendars(self, force_refresh: bool = False) -> list[dict[str, Any]]:
+        now = dt.datetime.now(dt.UTC)
+        if not force_refresh and self._calendar_list_cache is not None and now < self._calendar_list_cache_expires_at:
+            return list(self._calendar_list_cache)
+
         service = self._service()
-        return service.calendarList().list().execute().get("items", [])
+        items = service.calendarList().list().execute().get("items", [])
+        self._calendar_list_cache = items
+        self._calendar_list_cache_expires_at = now + dt.timedelta(minutes=10)
+        return list(items)
 
     def get_calendar_id_by_name(self, calendar_name: str = REFEREE_CALENDAR_NAME) -> str:
         calendars = self.get_all_calendars()

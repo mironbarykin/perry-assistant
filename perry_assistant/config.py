@@ -16,7 +16,7 @@ class AppConfig:
     data_dir: Path
     logs_dir: Path
     miron_id: int
-    openweather_api_key: str | None
+    debug_mode: bool
     credentials_file: Path
     token_pickle_file: Path
     notification_file: Path
@@ -26,6 +26,7 @@ class AppConfig:
     gyms_cache_file: Path
     school_absence_file: Path
     school_timetable_file: Path
+    weather_location_file: Path
     uportal_seen_rows_file: Path
     uportal_window_state_file: Path
     uportal_ignored_rows_file: Path
@@ -45,6 +46,12 @@ def _to_path(value: str | None, default: str) -> Path:
     return Path(default).expanduser()
 
 
+def _to_bool(value: str | None, default: bool = False) -> bool:
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
 def load_config() -> AppConfig:
     data_dir = _to_path(os.getenv("DATA_DIR"), "./data")
     logs_dir = data_dir / "logs"
@@ -58,7 +65,7 @@ def load_config() -> AppConfig:
         data_dir=data_dir,
         logs_dir=logs_dir,
         miron_id=int(os.getenv("MIRON_ID", "1955285579")),
-        openweather_api_key=os.getenv("OPENWEATHER_API_KEY"),
+        debug_mode=_to_bool(os.getenv("PERRY_DEBUG"), default=False),
         credentials_file=data_dir / "google_calendar_benny_access.json",
         token_pickle_file=data_dir / "token.pickle",
         notification_file=data_dir / "notification_times.json",
@@ -68,6 +75,7 @@ def load_config() -> AppConfig:
         gyms_cache_file=data_dir / "gyms_cache.json",
         school_absence_file=data_dir / "school_absences.json",
         school_timetable_file=data_dir / "school_timetable.json",
+        weather_location_file=data_dir / "weather_location.json",
         uportal_seen_rows_file=data_dir / "uportal_seen_rows.json",
         uportal_window_state_file=data_dir / "uportal_window_state.json",
         uportal_ignored_rows_file=data_dir / "uportal_ignored_rows.json",

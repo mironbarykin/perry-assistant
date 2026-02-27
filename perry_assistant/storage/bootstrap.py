@@ -29,6 +29,7 @@ def bootstrap_data(config: AppConfig) -> None:
     _ensure_json_file(config.gyms_cache_file, {})
     _ensure_json_file(config.school_absence_file, [])
     _ensure_json_file(config.school_timetable_file, {})
+    _ensure_json_file(config.weather_location_file, {})
     _ensure_json_file(config.uportal_seen_rows_file, {})
     _ensure_json_file(config.uportal_window_state_file, {})
     _ensure_json_file(config.uportal_ignored_rows_file, {})

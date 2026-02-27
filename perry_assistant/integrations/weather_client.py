@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import time
 from typing import Any
 
 import requests
@@ -9,37 +10,130 @@ from perry_assistant.config import AppConfig
 from perry_assistant.domain.models import WeatherSnapshot
 
 
+BRIGHTSKY_WEATHER_URL = "https://api.brightsky.dev/weather"
+
+
 class WeatherClient:
     def __init__(self, config: AppConfig) -> None:
-        self._api_key = config.openweather_api_key
+        self._session = requests.Session()
+        self._cache: dict[tuple[float, float, str], tuple[float, dict[str, Any]]] = {}
+        self._cache_ttl_seconds = 600
 
     def get_weather(self, location: dict[str, float], target_dt: dt.datetime) -> WeatherSnapshot:
-        if not self._api_key:
-            return WeatherSnapshot(None, None, None, False, "OPENWEATHER_API_KEY missing")
+        result = self.get_weather_payload(location, target_dt)
+        return result["snapshot"]
 
-        url = (
-            "https://api.openweathermap.org/data/2.5/forecast"
-            f"?lat={location['lat']}&lon={location['lon']}"
-            f"&appid={self._api_key}&units=metric"
+    def get_weather_payload(self, location: dict[str, float], target_dt: dt.datetime) -> dict[str, Any]:
+        try:
+            payload = self._fetch_payload(location, target_dt)
+            chosen = self._pick_closest_observation(payload.get("weather", []), target_dt)
+            if not chosen:
+                return {
+                    "snapshot": WeatherSnapshot(None, None, None, False, "Bright Sky weather list is empty"),
+                    "observation": {},
+                    "sources": payload.get("sources", []),
+                    "raw_payload": payload,
+                }
+            return {
+                "snapshot": self._snapshot_from_observation(chosen),
+                "observation": chosen,
+                "sources": payload.get("sources", []),
+                "raw_payload": payload,
+            }
+        except requests.RequestException as exc:
+            return {
+                "snapshot": WeatherSnapshot(None, None, None, False, f"Bright Sky request failed: {exc}"),
+                "observation": {},
+                "sources": [],
+                "raw_payload": {},
+            }
+        except ValueError as exc:
+            return {
+                "snapshot": WeatherSnapshot(None, None, None, False, str(exc)),
+                "observation": {},
+                "sources": [],
+                "raw_payload": {},
+            }
+
+    def _fetch_payload(self, location: dict[str, float], target_dt: dt.datetime) -> dict[str, Any]:
+        target_utc = target_dt.astimezone(dt.UTC) if target_dt.tzinfo else target_dt.replace(tzinfo=dt.UTC)
+        target_day = target_utc.date().isoformat()
+        lat = round(float(location["lat"]), 5)
+        lon = round(float(location["lon"]), 5)
+        cache_key = (lat, lon, target_day)
+        now = time.time()
+        cached = self._cache.get(cache_key)
+        if cached and cached[0] > now:
+            return cached[1]
+
+        response = self._session.get(
+            BRIGHTSKY_WEATHER_URL,
+            params={
+                "lat": lat,
+                "lon": lon,
+                "date": target_day,
+                "last_date": target_day,
+            },
+            timeout=20,
         )
-        response = requests.get(url, timeout=15)
-        data: dict[str, Any] = response.json()
+        response.raise_for_status()
+        payload: dict[str, Any] = response.json()
+        self._cache[cache_key] = (now + self._cache_ttl_seconds, payload)
+        return payload
 
-        if "list" not in data:
-            return WeatherSnapshot(None, None, None, False, f"API error: {data.get('message', 'unknown')}")
+    def _pick_closest_observation(self, observations: list[dict[str, Any]], target_dt: dt.datetime) -> dict[str, Any]:
+        if not observations:
+            return {}
 
-        forecasts = data["list"]
-        target_ts = int(target_dt.timestamp())
-        chosen = min(forecasts, key=lambda forecast: abs(int(forecast["dt"]) - target_ts))
+        target_utc = target_dt.astimezone(dt.UTC) if target_dt.tzinfo else target_dt.replace(tzinfo=dt.UTC)
+        best = None
+        best_delta = None
+        for item in observations:
+            observed = self._parse_timestamp(item.get("timestamp"))
+            if not observed:
+                continue
+            delta = abs((observed - target_utc).total_seconds())
+            if best is None or (best_delta is not None and delta < best_delta):
+                best = item
+                best_delta = delta
+        return best or {}
 
-        description = chosen["weather"][0]["description"].lower()
+    @staticmethod
+    def _parse_timestamp(raw: Any) -> dt.datetime | None:
+        if not isinstance(raw, str):
+            return None
+        try:
+            return dt.datetime.fromisoformat(raw.replace("Z", "+00:00")).astimezone(dt.UTC)
+        except ValueError:
+            return None
+
+    def _snapshot_from_observation(self, observation: dict[str, Any]) -> WeatherSnapshot:
+        description = str(
+            observation.get("condition")
+            or observation.get("icon")
+            or observation.get("fallback_source_ids")
+            or ""
+        ).lower()
+
+        precipitation = observation.get("precipitation")
+        rain = bool(
+            (isinstance(precipitation, (float, int)) and precipitation > 0)
+            or any(token in description for token in ("rain", "drizzle", "shower", "thunder", "storm"))
+        )
+
         return WeatherSnapshot(
-            temp=chosen["main"].get("temp"),
-            wind_speed=chosen["wind"].get("speed"),
-            wind_deg=chosen["wind"].get("deg"),
-            rain="rain" in description,
+            temp=self._to_float(observation.get("temperature")),
+            wind_speed=self._to_float(observation.get("wind_speed")),
+            wind_deg=self._to_float(observation.get("wind_direction")),
+            rain=rain,
             description=description,
         )
+
+    @staticmethod
+    def _to_float(value: Any) -> float | None:
+        if isinstance(value, (float, int)):
+            return float(value)
+        return None
 
 
 def weather_message(weather: WeatherSnapshot | None, route_angle: int = 30) -> str:

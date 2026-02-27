@@ -2,7 +2,7 @@
 
 import datetime as dt
 import random
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 
 from perry_assistant.domain.models import UportalGame
@@ -167,7 +167,8 @@ def test_evaluate_rows_fetches_calendar_events_once_per_game_day(app_config):
 
 
 def test_dump_raw_rows_debug_writes_all_scraped_rows(app_config):
-    service = UportalService(app_config, _FakeUportalClient([]), _FakeCalendarClient(), rng=random.Random(0))
+    debug_config = replace(app_config, debug_mode=True)
+    service = UportalService(debug_config, _FakeUportalClient([]), _FakeCalendarClient(), rng=random.Random(0))
     rows = [
         _row("11", "11", date="27.02.2026", time="09:00", distance_km=12.5),
         _row("12", "12", date="28.02.2026", time="11:00", distance_km=30.0),
@@ -183,6 +184,15 @@ def test_dump_raw_rows_debug_writes_all_scraped_rows(app_config):
     assert payload["rows"][0]["date"] == "27.02.2026"
     assert payload["rows"][0]["time"] == "09:00"
     assert payload["rows"][0]["distance_km"] == 12.5
+
+
+def test_dump_raw_rows_debug_disabled_when_not_in_debug_mode(app_config):
+    service = UportalService(app_config, _FakeUportalClient([]), _FakeCalendarClient(), rng=random.Random(0))
+    rows = [_row("11", "11", date="27.02.2026", time="09:00", distance_km=12.5)]
+
+    path = service._dump_raw_rows_debug(rows, reason="manual")  # noqa: SLF001
+
+    assert path == ""
 
 
 def test_row_line_uses_compact_format_and_kind_badge(app_config):

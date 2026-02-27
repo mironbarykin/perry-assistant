@@ -12,13 +12,17 @@ from perry_assistant.config import AppConfig
 class GmailClient:
     def __init__(self, config: AppConfig) -> None:
         self._config = config
+        self._service_cache = None
 
     def _service(self):
+        if self._service_cache is not None:
+            return self._service_cache
         creds = None
         if self._config.token_pickle_file.exists():
             with self._config.token_pickle_file.open("rb") as token_file:
                 creds = pickle.load(token_file)
-        return build("gmail", "v1", credentials=creds)
+        self._service_cache = build("gmail", "v1", credentials=creds)
+        return self._service_cache
 
     def get_basketball_email_ids(self, max_results: int = 10) -> list[dict[str, str]]:
         query = " OR ".join(f"from:{sender}" for sender in self._config.basketball_senders)
@@ -64,4 +68,3 @@ def _extract_payload_text(payload: dict[str, Any]) -> str:
 
 def _decode(data: str) -> str:
     return base64.urlsafe_b64decode(data).decode(errors="ignore")
-

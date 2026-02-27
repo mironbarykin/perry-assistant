@@ -12,7 +12,7 @@ def build_main_keyboard(is_admin: bool) -> ReplyKeyboardMarkup:
     second_row = []
     if is_admin:
         second_row.append(KeyboardButton("ABSENCES"))
-        second_row.append(KeyboardButton("EMAILS"))
+        second_row.append(KeyboardButton("REFEREE"))
     return ReplyKeyboardMarkup([base_row, second_row] if second_row else [base_row], resize_keyboard=True)
 
 
@@ -21,3 +21,9 @@ def build_absences_menu_keyboard() -> ReplyKeyboardMarkup:
     row2 = [KeyboardButton("ALL ABSENCES"), KeyboardButton("EXCUSED ABSENCES")]
     row3 = [KeyboardButton("BACK")]
     return ReplyKeyboardMarkup([row1, row2, row3], resize_keyboard=True)
+
+
+def build_referee_menu_keyboard() -> ReplyKeyboardMarkup:
+    row1 = [KeyboardButton("EMAILS"), KeyboardButton("UPORTAL")]
+    row2 = [KeyboardButton("BACK")]
+    return ReplyKeyboardMarkup([row1, row2], resize_keyboard=True)

@@ -3,7 +3,11 @@ from __future__ import annotations
 from telegram import Update
 from telegram.ext import CallbackContext, ConversationHandler
 
-from perry_assistant.bot.keyboards import build_main_keyboard, build_schedule_keyboard
+from perry_assistant.bot.keyboards import (
+    build_main_keyboard,
+    build_referee_menu_keyboard,
+    build_schedule_keyboard,
+)
 from perry_assistant.domain.types import AppServices
 from perry_assistant.storage.json_store import read_json, write_json
 
@@ -30,7 +34,7 @@ async def start(update: Update, context: CallbackContext) -> None:
 
     command_text = "Commands: /today /tomorrow /weekend"
     if is_admin:
-        command_text += " /absence /absences /excused /excuse /published"
+        command_text += " /absence /absences /excused /excuse /published /setweatherloc /weatherloc"
 
     await update.message.reply_text(
         (
@@ -89,7 +93,16 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
     text = update.message.text.strip().upper()
     is_admin = bool(user and user.id == services.config.miron_id)
 
-    if text in {"ABSENCES", "EXCUSABLE TODAY", "ALL ABSENCES", "EXCUSED ABSENCES", "I AM ABSENT"} and not is_admin:
+    if text in {
+        "ABSENCES",
+        "EXCUSABLE TODAY",
+        "ALL ABSENCES",
+        "EXCUSED ABSENCES",
+        "I AM ABSENT",
+        "REFEREE",
+        "EMAILS",
+        "UPORTAL",
+    } and not is_admin:
         await update.message.reply_text("Access denied. Admin only.")
         return
 
@@ -127,6 +140,10 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
         await update.message.reply_text("OK", reply_markup=build_schedule_keyboard())
         return
 
+    if text == "REFEREE":
+        await update.message.reply_text("OK", reply_markup=build_referee_menu_keyboard())
+        return
+
     if text == "TODAY":
         from perry_assistant.bot.handlers.schedule import today
 
@@ -152,12 +169,15 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
         return
 
     if text == "EMAILS":
-        if not is_admin:
-            await update.message.reply_text("Admin only.")
-            return
         from perry_assistant.bot.handlers.referee import emails
 
         await emails(update, context)
+        return
+
+    if text == "UPORTAL":
+        from perry_assistant.bot.handlers.uportal import uportal
+
+        await uportal(update, context)
         return
 
     if text == "BACK":

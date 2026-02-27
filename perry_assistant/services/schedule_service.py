@@ -70,29 +70,41 @@ class ScheduleService:
             f"Sunday: {sun_date}\n{sun_text or 'No events'}"
         )
 
-    def morning_digest(self, home_coords: dict[str, float], school_coords: dict[str, float]) -> str:
+    def morning_digest(
+        self,
+        home_coords: dict[str, float],
+        school_coords: dict[str, float],
+        current_coords: dict[str, float] | None = None,
+        location_city_label: str = "home",
+        yesterday_usage_line: str | None = None,
+    ) -> str:
         today = dt.datetime.now(BERLIN_TZ)
         events = self._calendar.get_events_for_date(today)
         events_text = "\n".join(self._display_line(item) for item in events) if events else "No events"
         lines = [f"Good morning. Schedule for today:\n{events_text}"]
 
-        school_events = [event for event in events if "school" in clean_text(event.line)]
-        school_end = max((event.end for event in school_events if event.end), default=None)
+        active_coords = current_coords or home_coords
+        school_events = [event for event in events if "school" in clean_text(event.line) and event.start]
+        if school_events:
+            first_school_start = min(event.start for event in school_events if event.start)
+            end_candidates = [event.end or event.start for event in school_events if event.start]
+            last_school_end = max(end_candidates) if end_candidates else None
 
-        school_target = today.replace(hour=7, minute=0, second=0, microsecond=0)
-        school_weather = self._weather.get_weather(home_coords, school_target)
-        lines.append(f"🏫 {weather_message(school_weather)}")
+            first_target = first_school_start - dt.timedelta(hours=1)
+            first_weather = self._weather.get_weather(active_coords, first_target)
+            lines.append(f"🏠- {weather_message(first_weather)}")
 
-        if school_end:
-            home_weather = self._weather.get_weather(school_coords, school_end)
-            lines.append(f"🏠 {weather_message(home_weather)}")
-        else:
-            lines.append("🏠 No school event today.")
+            if last_school_end:
+                second_weather = self._weather.get_weather(school_coords, last_school_end)
+                lines.append(f"🏫- {weather_message(second_weather)}")
 
         gap_warning = check_school_practice_gap(events)
         if gap_warning:
             lines.append(gap_warning)
 
+        lines.append(f"Location changed? /setweatherloc")
+        if yesterday_usage_line:
+            lines.append(yesterday_usage_line)
         return "\n\n".join(lines)
 
     @staticmethod
@@ -116,4 +128,3 @@ class ScheduleService:
                 continue
             visible.append(item)
         return sorted(visible, key=lambda item: (not item.is_all_day, item.start is None, item.start))
-

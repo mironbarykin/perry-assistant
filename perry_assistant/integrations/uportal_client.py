@@ -20,15 +20,20 @@ PAGINATION_KEYS = {"page", "p", "start", "offset", "seite"}
 class UportalClient:
     def __init__(self, config: AppConfig) -> None:
         self._config = config
+        self._debug_enabled = bool(config.debug_mode)
         self._last_debug_info: dict = {}
         self._debug_pages: list[dict[str, str]] = []
 
     def fetch_open_games(self) -> list[UportalGame]:
-        self._last_debug_info = {
-            "started_at": dt.datetime.now(dt.UTC).isoformat(),
-            "login_url": self._config.uportal_login_url,
-            "pages": [],
-        }
+        self._last_debug_info = (
+            {
+                "started_at": dt.datetime.now(dt.UTC).isoformat(),
+                "login_url": self._config.uportal_login_url,
+                "pages": [],
+            }
+            if self._debug_enabled
+            else {}
+        )
         self._debug_pages = []
         if not self._config.uportal_login_name or not self._config.uportal_login_password:
             raise ValueError("UPORTAL_LOGIN_NAME and UPORTAL_LOGIN_PASSWORD are required.")
@@ -45,7 +50,8 @@ class UportalClient:
             login_response = self._login(session)
             self._remember_page("post_login", login_response.url, login_response.text)
             offene_umb_url = self._discover_offene_umb_url(session, login_response)
-            self._last_debug_info["offene_umb_url"] = offene_umb_url
+            if self._debug_enabled:
+                self._last_debug_info["offene_umb_url"] = offene_umb_url
             return self._fetch_all_pages(session, offene_umb_url)
 
     def _login(self, session: requests.Session) -> requests.Response:
@@ -75,13 +81,15 @@ class UportalClient:
 
         if self._looks_like_login_page(login_response.text):
             raise ValueError("Uportal login failed; still on login form after submit.")
-        self._last_debug_info["login_submit_url"] = submit_url
+        if self._debug_enabled:
+            self._last_debug_info["login_submit_url"] = submit_url
         return login_response
 
     def _discover_offene_umb_url(self, session: requests.Session, login_response: requests.Response) -> str:
         direct = self._extract_offene_umb_url(login_response.text, login_response.url)
         if direct:
-            self._last_debug_info["offene_umb_source"] = "post_login"
+            if self._debug_enabled:
+                self._last_debug_info["offene_umb_source"] = "post_login"
             return direct
 
         dashboard_url = urljoin(self._config.uportal_login_url, "index.php")
@@ -90,7 +98,8 @@ class UportalClient:
         self._remember_page("dashboard", dashboard_response.url, dashboard_response.text)
         fallback = self._extract_offene_umb_url(dashboard_response.text, dashboard_response.url)
         if fallback:
-            self._last_debug_info["offene_umb_source"] = "dashboard"
+            if self._debug_enabled:
+                self._last_debug_info["offene_umb_source"] = "dashboard"
             return fallback
 
         raise ValueError("Could not find 'offene Umb.' link after login.")
@@ -110,16 +119,17 @@ class UportalClient:
             response.raise_for_status()
             soup = BeautifulSoup(response.text, "html.parser")
             page_games, meta = self._parse_games_with_meta(soup, base_url=response.url)
-            self._last_debug_info["pages"].append(
-                {
-                    "url": response.url,
-                    "status_code": response.status_code,
-                    "rows_found": len(page_games),
-                    "table_found": meta["table_found"],
-                    "table_headers": meta["table_headers"],
-                    "table_count": meta["table_count"],
-                }
-            )
+            if self._debug_enabled:
+                self._last_debug_info["pages"].append(
+                    {
+                        "url": response.url,
+                        "status_code": response.status_code,
+                        "rows_found": len(page_games),
+                        "table_found": meta["table_found"],
+                        "table_headers": meta["table_headers"],
+                        "table_count": meta["table_count"],
+                    }
+                )
             self._remember_page("list_page", response.url, response.text)
             games.extend(page_games)
 
@@ -446,9 +456,13 @@ class UportalClient:
         return "name=\"form_login\"" in lowered and "login_password" in lowered
 
     def get_last_debug_info(self) -> dict:
+        if not self._debug_enabled:
+            return {}
         return dict(self._last_debug_info)
 
     def dump_last_debug_artifacts(self) -> dict:
+        if not self._debug_enabled:
+            return {}
         timestamp = dt.datetime.now(dt.UTC).strftime("%Y%m%dT%H%M%SZ")
         directory = self._config.logs_dir / "uportal_debug"
         directory.mkdir(parents=True, exist_ok=True)
@@ -469,6 +483,8 @@ class UportalClient:
         }
 
     def _remember_page(self, label: str, url: str, html: str) -> None:
+        if not self._debug_enabled:
+            return
         if len(self._debug_pages) >= 8:
             return
         self._debug_pages.append(

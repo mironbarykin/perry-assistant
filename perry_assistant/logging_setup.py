@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 LOG_STATS_LEVEL = 25
-logging.addLevelName(LOG_STATS_LEVEL, "STAT")
+logging.addLevelName(LOG_STATS_LEVEL, "STATS")
 
 
 def statistic(self: logging.Logger, message: str, *args, **kwargs) -> None:
@@ -17,7 +17,7 @@ def statistic(self: logging.Logger, message: str, *args, **kwargs) -> None:
 logging.Logger.statistic = statistic  # type: ignore[attr-defined]
 
 
-def configure_logging(logs_dir: Path) -> None:
+def configure_logging(logs_dir: Path, debug_mode: bool = False) -> None:
     logs_dir.mkdir(parents=True, exist_ok=True)
     log_file = logs_dir / "perry.log"
 
@@ -32,9 +32,8 @@ def configure_logging(logs_dir: Path) -> None:
     )
 
     logging.basicConfig(
-        level=logging.INFO,
+        level=logging.DEBUG if debug_mode else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
         handlers=[file_handler, logging.StreamHandler()],
         force=True,
     )
-

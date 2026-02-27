@@ -101,9 +101,15 @@ async def morning(update: Update, context: CallbackContext) -> None:
         return
 
     services = get_services(context)
+    current_coords, _ = services.weather_location_service.resolve_current_location(services.config.home_coords)
+    location_city_label = services.weather_location_service.location_city_label(fallback="home")
+    usage_line = services.stats_service.yesterday_usage_line()
     digest = services.schedule_service.morning_digest(
         services.config.home_coords,
         services.config.school_coords,
+        current_coords=current_coords,
+        location_city_label=location_city_label,
+        yesterday_usage_line=usage_line,
     )
     await _reply_markdown(update, digest)
 
@@ -118,9 +124,15 @@ async def send_daily_notification_job(context: ContextTypes.DEFAULT_TYPE) -> Non
 
 async def send_morning_message_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     services = context.application.bot_data["services"]
+    current_coords, _ = services.weather_location_service.resolve_current_location(services.config.home_coords)
+    location_city_label = services.weather_location_service.location_city_label(fallback="home")
+    usage_line = services.stats_service.yesterday_usage_line()
     digest = services.schedule_service.morning_digest(
         services.config.home_coords,
         services.config.school_coords,
+        current_coords=current_coords,
+        location_city_label=location_city_label,
+        yesterday_usage_line=usage_line,
     )
     await _send_markdown(context, chat_id=services.config.miron_id, text=digest)
 

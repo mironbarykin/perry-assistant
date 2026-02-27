@@ -13,14 +13,17 @@ from perry_assistant.services.absence_service import AbsenceService
 from perry_assistant.services.notification_service import NotificationService
 from perry_assistant.services.referee_service import RefereeService
 from perry_assistant.services.schedule_service import ScheduleService
+from perry_assistant.services.stats_service import StatsService
 from perry_assistant.services.uportal_service import UportalService
+from perry_assistant.services.weather_archive_service import WeatherArchiveService
+from perry_assistant.services.weather_location_service import WeatherLocationService
 from perry_assistant.storage.bootstrap import bootstrap_data
 
 
 def build_services() -> AppServices:
     config = load_config()
     bootstrap_data(config)
-    configure_logging(config.logs_dir)
+    configure_logging(config.logs_dir, debug_mode=config.debug_mode)
 
     calendar_client = CalendarClient(config)
     gmail_client = GmailClient(config)
@@ -33,6 +36,9 @@ def build_services() -> AppServices:
     referee_service = RefereeService(config, gmail_client, calendar_client, gym_client)
     absence_service = AbsenceService(config)
     uportal_service = UportalService(config, uportal_client, calendar_client)
+    weather_location_service = WeatherLocationService(config)
+    weather_archive_service = WeatherArchiveService(config, weather_client, weather_location_service)
+    stats_service = StatsService(config)
     return AppServices(
         config=config,
         schedule_service=schedule_service,
@@ -40,6 +46,9 @@ def build_services() -> AppServices:
         referee_service=referee_service,
         absence_service=absence_service,
         uportal_service=uportal_service,
+        stats_service=stats_service,
+        weather_location_service=weather_location_service,
+        weather_archive_service=weather_archive_service,
     )
 
 

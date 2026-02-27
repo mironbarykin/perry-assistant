@@ -263,6 +263,7 @@ class RefereeService:
         processed_ids = read_json(self._config.processed_emails_file, [])
         processed_ids = processed_ids[-100:]
         processed_set = set(processed_ids)
+        changed = False
 
         messages = self._gmail.get_basketball_email_ids(max_results=20)
 
@@ -277,6 +278,7 @@ class RefereeService:
                 processed_ids.append(msg_id)
                 processed_set.add(msg_id)
                 processed_ids = processed_ids[-100:]
+                changed = True
                 continue
 
             multiple = len(assignments) > 1
@@ -286,6 +288,9 @@ class RefereeService:
             processed_ids.append(msg_id)
             processed_set.add(msg_id)
             processed_ids = processed_ids[-100:]
+            changed = True
+
+        if changed:
             write_json(self._config.processed_emails_file, processed_ids)
 
     async def _handle_assignment(

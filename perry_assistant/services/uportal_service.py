@@ -34,6 +34,9 @@ IGNORE_CALLBACK_PREFIX = "uio:"
 IGNORE_GAME_CALLBACK_PREFIX = "uio:g:"
 IGNORE_ALL_CALLBACK_PREFIX = "uio:a:"
 MAX_BUTTONS_PER_CHUNK = 20
+SEEN_RETENTION_DAYS = 90
+IGNORED_RETENTION_DAYS = 90
+CATALOG_PAST_RETENTION_DAYS = 30
 
 
 @dataclass(slots=True)
@@ -154,7 +157,7 @@ class UportalService:
 
     def ignore_game_by_id(self, ignore_id: str) -> tuple[bool, str]:
         catalog = read_json(self._config.uportal_game_catalog_file, {})
-        ignored = read_json(self._config.uportal_ignored_rows_file, {})
+        ignored = self._prune_ignored_entries(read_json(self._config.uportal_ignored_rows_file, {}))
         if ignore_id in ignored:
             return False, "Uportal: already ignored."
         game_data = catalog.get(ignore_id)
@@ -174,7 +177,7 @@ class UportalService:
             return False, "Uportal: ignore group expired. Run /uportal again."
 
         catalog = read_json(self._config.uportal_game_catalog_file, {})
-        ignored = read_json(self._config.uportal_ignored_rows_file, {})
+        ignored = self._prune_ignored_entries(read_json(self._config.uportal_ignored_rows_file, {}))
         added = 0
         for ignore_id in ignore_ids:
             if ignore_id in ignored:
@@ -260,6 +263,8 @@ class UportalService:
         return best
 
     def _dump_raw_rows_debug(self, rows: list[UportalGame], reason: str) -> str:
+        if not self._config.debug_mode:
+            return ""
         timestamp = dt.datetime.now(dt.UTC).strftime("%Y%m%dT%H%M%S%fZ")
         safe_reason = reason.replace(":", "_")
         directory = self._config.logs_dir / "uportal_debug"
@@ -282,11 +287,12 @@ class UportalService:
             payload["ignore_id"] = ignore_id
             payload["updated_at"] = dt.datetime.now(dt.UTC).isoformat()
             catalog[ignore_id] = payload
+        catalog = self._prune_catalog_entries(catalog)
         write_json(self._config.uportal_game_catalog_file, catalog)
 
     def _evaluate_rows(self, rows: list[UportalGame]) -> tuple[list[EvaluatedGame], dict[str, int]]:
-        seen: dict[str, dict] = read_json(self._config.uportal_seen_rows_file, {})
-        ignored: dict[str, dict] = read_json(self._config.uportal_ignored_rows_file, {})
+        seen: dict[str, dict] = self._prune_seen_entries(read_json(self._config.uportal_seen_rows_file, {}))
+        ignored: dict[str, dict] = self._prune_ignored_entries(read_json(self._config.uportal_ignored_rows_file, {}))
         now_iso = dt.datetime.now(dt.UTC).isoformat()
         evaluated: list[EvaluatedGame] = []
         counts = {"fetched": len(rows), "new": 0, "updated": 0, "old_green": 0, "hidden": 0, "ignored": 0}
@@ -333,6 +339,7 @@ class UportalService:
             self._referee_event_intervals_cache = None
 
         write_json(self._config.uportal_seen_rows_file, seen)
+        write_json(self._config.uportal_ignored_rows_file, ignored)
         return sorted(evaluated, key=self._sort_key), counts
 
     @staticmethod
@@ -615,7 +622,8 @@ class UportalService:
         return InlineKeyboardMarkup(rows)
 
     def _render_ignored_chunks(self) -> list[str]:
-        ignored = read_json(self._config.uportal_ignored_rows_file, {})
+        ignored = self._prune_ignored_entries(read_json(self._config.uportal_ignored_rows_file, {}))
+        write_json(self._config.uportal_ignored_rows_file, ignored)
         if not ignored:
             return ["No ignored Uportal games."]
 
@@ -682,6 +690,8 @@ class UportalService:
             chunks.append("\n".join(current))
         return chunks
     def _manual_debug_summary(self) -> str:
+        if not self._config.debug_mode:
+            return ""
         get_info = getattr(self._uportal_client, "get_last_debug_info", None)
         dump_info = getattr(self._uportal_client, "dump_last_debug_artifacts", None)
         base_summary = ""
@@ -706,3 +716,71 @@ class UportalService:
                 return f"{base_summary}, rows_json={self._last_raw_rows_debug_file}"
             return f"Uportal debug: rows_json={self._last_raw_rows_debug_file}"
         return base_summary
+
+    def _prune_seen_entries(self, seen: dict[str, dict]) -> dict[str, dict]:
+        if not isinstance(seen, dict):
+            return {}
+        cutoff = dt.datetime.now(dt.UTC) - dt.timedelta(days=SEEN_RETENTION_DAYS)
+        kept: dict[str, dict] = {}
+        for key, payload in seen.items():
+            if not isinstance(payload, dict):
+                continue
+            timestamp = self._parse_iso_timestamp(payload.get("last_seen_at")) or self._parse_iso_timestamp(
+                payload.get("first_seen_at")
+            )
+            if timestamp and timestamp < cutoff:
+                continue
+            kept[key] = payload
+        return kept
+
+    def _prune_catalog_entries(self, catalog: dict[str, dict]) -> dict[str, dict]:
+        if not isinstance(catalog, dict):
+            return {}
+        cutoff = dt.datetime.now(BERLIN_TZ).date() - dt.timedelta(days=CATALOG_PAST_RETENTION_DAYS)
+        kept: dict[str, dict] = {}
+        for key, payload in catalog.items():
+            if not isinstance(payload, dict):
+                continue
+            game_date = self._parse_game_date(payload.get("date"))
+            if game_date and game_date < cutoff:
+                continue
+            kept[key] = payload
+        return kept
+
+    def _prune_ignored_entries(self, ignored: dict[str, dict]) -> dict[str, dict]:
+        if not isinstance(ignored, dict):
+            return {}
+        cutoff = dt.datetime.now(BERLIN_TZ).date() - dt.timedelta(days=IGNORED_RETENTION_DAYS)
+        kept: dict[str, dict] = {}
+        for key, payload in ignored.items():
+            if not isinstance(payload, dict):
+                continue
+            game_date = self._parse_game_date(payload.get("date"))
+            ignored_at = self._parse_iso_timestamp(payload.get("ignored_at"))
+            if game_date and game_date < cutoff:
+                continue
+            if ignored_at and ignored_at.date() < cutoff:
+                continue
+            kept[key] = payload
+        return kept
+
+    @staticmethod
+    def _parse_iso_timestamp(raw: object) -> dt.datetime | None:
+        if not isinstance(raw, str):
+            return None
+        try:
+            parsed = dt.datetime.fromisoformat(raw)
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=dt.UTC)
+        return parsed.astimezone(dt.UTC)
+
+    @staticmethod
+    def _parse_game_date(raw: object) -> dt.date | None:
+        if not isinstance(raw, str):
+            return None
+        try:
+            return dt.datetime.strptime(raw, "%d.%m.%Y").date()
+        except ValueError:
+            return None

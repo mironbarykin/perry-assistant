@@ -14,6 +14,17 @@ set "RETAIN_RELEASES=5"
 set "REMOTE_DEPLOY_SCRIPT=%REMOTE_PATH%/deploy_remote.sh"
 set "LOCAL_DEPLOY_SCRIPT=scripts/deploy_remote.sh"
 
+set "DEBUG_MODE=0"
+set "RELEASE_VERSION="
+for %%A in (%*) do (
+  set "ARG=%%~A"
+  if /I "!ARG!"=="debug" set "DEBUG_MODE=1"
+  if /I "!ARG:~0,8!"=="release=" set "RELEASE_VERSION=!ARG:~8!"
+)
+
+set "RELEASE_IMAGE_TAG="
+if defined RELEASE_VERSION set "RELEASE_IMAGE_TAG=%IMAGE_NAME%:release-%RELEASE_VERSION%"
+
 set "EXIT_CODE=0"
 set "TAR_FILE="
 
@@ -48,16 +59,24 @@ if not defined BUILD_TS (
   goto :fail
 )
 
-set "RELEASE_TAG=%GIT_SHA%-%BUILD_TS%"
-set "IMAGE_TAG=%IMAGE_NAME%:%RELEASE_TAG%"
-set "TAR_FILE=%IMAGE_NAME%-%RELEASE_TAG%.tar"
-set /a RETAIN_RELEASES_PLUS_ONE=%RETAIN_RELEASES%+1
+set "ROLLING_TAG=%GIT_SHA%-%BUILD_TS%"
+set "IMAGE_TAG=%IMAGE_NAME%:%ROLLING_TAG%"
+set "TAR_FILE=%IMAGE_NAME%-%ROLLING_TAG%.tar"
 
 call :log "[2/6] Build image: %IMAGE_TAG%"
 docker build --tag "%IMAGE_TAG%" --tag "%IMAGE_NAME%:latest" .
 if errorlevel 1 (
   call :error "Docker build failed."
   goto :fail
+)
+
+if defined RELEASE_IMAGE_TAG (
+  call :log "Tagging release image: %RELEASE_IMAGE_TAG%"
+  docker tag "%IMAGE_TAG%" "%RELEASE_IMAGE_TAG%"
+  if errorlevel 1 (
+    call :error "Failed to tag release image."
+    goto :fail
+  )
 )
 
 call :log "[3/6] Save image tar: %TAR_FILE%"
@@ -80,14 +99,15 @@ if errorlevel 1 (
 )
 
 call :log "[5/6] Deploy and health-check with rollback"
-ssh -i "%REMOTE_KEY%" %REMOTE_USER%@%REMOTE_HOST% "bash '%REMOTE_DEPLOY_SCRIPT%' '%CONTAINER_NAME%' '%REMOTE_ENV_FILE%' '%REMOTE_PATH%' '%TAR_FILE%' '%IMAGE_TAG%' '%HEALTHCHECK_WAIT_SEC%' '%IMAGE_NAME%' '%RETAIN_RELEASES%'"
+ssh -i "%REMOTE_KEY%" %REMOTE_USER%@%REMOTE_HOST% "bash '%REMOTE_DEPLOY_SCRIPT%' '%CONTAINER_NAME%' '%REMOTE_ENV_FILE%' '%REMOTE_PATH%' '%TAR_FILE%' '%IMAGE_TAG%' '%HEALTHCHECK_WAIT_SEC%' '%IMAGE_NAME%' '%RETAIN_RELEASES%' '%DEBUG_MODE%' '%RELEASE_IMAGE_TAG%'"
 if errorlevel 1 (
   call :error "Remote deployment failed."
   goto :fail
 )
 
-call :log "[6/6] Cleanup local artifact"
+call :log "[6/6] Cleanup local artifacts and old images"
 if exist "%TAR_FILE%" del /q "%TAR_FILE%"
+call :cleanup_local_images
 
 call :log "Deployment completed successfully."
 goto :end
@@ -97,6 +117,10 @@ set "EXIT_CODE=1"
 if defined TAR_FILE if exist "%TAR_FILE%" del /q "%TAR_FILE%" >NUL 2>&1
 call :error "Deployment failed."
 goto :end
+
+:cleanup_local_images
+powershell -NoProfile -Command "$repo='%IMAGE_NAME%'; $retain=%RETAIN_RELEASES%; $all = @(docker image ls $repo --format '{{.Repository}}:{{.Tag}}'); $rolling = @($all | Where-Object { $_ -and ($_ -notmatch ':latest$') -and ($_ -notmatch ':release-') -and ($_ -notmatch ':<none>$') } | Select-Object -Unique); $remove = @($rolling | Select-Object -Skip $retain); foreach ($tag in $remove) { docker image rm $tag *> $null }; docker image prune -f *> $null" >NUL 2>&1
+exit /b 0
 
 :require_command
 where %~1 >NUL 2>&1
@@ -127,4 +151,3 @@ exit /b 0
 
 :end
 endlocal & exit /b %EXIT_CODE%
-

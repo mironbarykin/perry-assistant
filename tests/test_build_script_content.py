@@ -11,4 +11,7 @@ def test_build_script_contains_safety_features():
     assert "scp -i" in batch
     assert "LOCAL_DEPLOY_SCRIPT=scripts/deploy_remote.sh" in batch
     assert "bash '%REMOTE_DEPLOY_SCRIPT%'" in batch
+    assert "release=" in batch
+    assert "debug" in batch
     assert "--env-file" in remote
+    assert "PERRY_DEBUG" in remote
