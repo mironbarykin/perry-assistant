@@ -73,7 +73,6 @@ def build_application(services: AppServices) -> Application:
     app.add_error_handler(error_handler)
 
     app.job_queue.run_repeating(referee.process_basketball_emails_job, interval=300, first=0)
-    app.job_queue.run_repeating(uportal.process_uportal_schedule_tick_job, interval=60, first=0)
     app.job_queue.run_daily(
         services.weather_archive_service.process_scheduled_capture,
         time=dt.time(hour=8, minute=0, tzinfo=BERLIN_TZ),

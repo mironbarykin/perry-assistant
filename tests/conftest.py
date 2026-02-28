@@ -26,6 +26,8 @@ def app_config(tmp_path: Path) -> AppConfig:
         school_absence_file=data_dir / "school_absences.json",
         school_timetable_file=data_dir / "school_timetable.json",
         weather_location_file=data_dir / "weather_location.json",
+        game_message_rules_file=data_dir / "game_message_rules.json",
+        game_message_state_file=data_dir / "game_message_state.json",
         uportal_seen_rows_file=data_dir / "uportal_seen_rows.json",
         uportal_window_state_file=data_dir / "uportal_window_state.json",
         uportal_ignored_rows_file=data_dir / "uportal_ignored_rows.json",

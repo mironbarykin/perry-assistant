@@ -104,7 +104,7 @@ def test_morning_digest_with_school_contains_two_weather_lines_and_location_prom
     assert "🏠-" in digest
     assert "🏫-" in digest
     assert "Location changed? /setweatherloc" in digest
-    assert digest.strip().endswith("📊 Yesterday Perry was used 5 times, 2 of those by parents.")
+    assert digest.strip().endswith("📊 Yesterday Perry was used 5 times, 2 of those by parents")
     assert len(weather.calls) == 2
 
 

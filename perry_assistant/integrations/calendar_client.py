@@ -161,6 +161,20 @@ class CalendarClient:
         ).execute().get("items", [])
         return [event for event in events if "referee game" in event.get("summary", "").lower()]
 
+    def get_basketball_events_between(self, start_time: dt.datetime, end_time: dt.datetime) -> list[dict[str, Any]]:
+        service = self._service()
+        calendar_id = self.get_calendar_id_by_name(REFEREE_CALENDAR_NAME)
+        start = start_time.astimezone(dt.UTC).isoformat()
+        end = end_time.astimezone(dt.UTC).isoformat()
+        return service.events().list(
+            calendarId=calendar_id,
+            timeMin=start,
+            timeMax=end,
+            singleEvents=True,
+            orderBy="startTime",
+            maxResults=2500,
+        ).execute().get("items", [])
+
     def get_event(self, event_id: str) -> dict[str, Any]:
         service = self._service()
         calendar_id = self.get_calendar_id_by_name(REFEREE_CALENDAR_NAME)

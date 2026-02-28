@@ -9,7 +9,7 @@ from urllib.parse import quote_plus
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
-from telegram.ext import ContextTypes
+from telegram.ext import Application, ContextTypes
 
 from perry_assistant.config import AppConfig
 from perry_assistant.constants import BERLIN_TZ, DEFAULT_GAME_DURATION_HOURS
@@ -37,6 +37,9 @@ MAX_BUTTONS_PER_CHUNK = 20
 SEEN_RETENTION_DAYS = 90
 IGNORED_RETENTION_DAYS = 90
 CATALOG_PAST_RETENTION_DAYS = 30
+GENERATED_JOB_MORNING = "uportal_generated_morning"
+GENERATED_JOB_EVENING = "uportal_generated_evening"
+GENERATED_JOB_MIDNIGHT = "uportal_generated_midnight"
 
 
 @dataclass(slots=True)
@@ -96,6 +99,43 @@ class UportalService:
         state["executed"][due_window] = True
         self._save_window_state(state)
 
+    async def run_generated_scan(self, context: ContextTypes.DEFAULT_TYPE, reason: str) -> None:
+        await self._scan_and_notify(context, reason=reason)
+
+    def generate_daily_scan_jobs(self, app: Application, callback) -> dict[str, str]:
+        now = dt.datetime.now(BERLIN_TZ)
+        state = read_json(self._config.uportal_window_state_file, {})
+        targets = self._load_or_create_generated_targets(state, now)
+        self._save_window_state(state)
+
+        for name in (GENERATED_JOB_MORNING, GENERATED_JOB_EVENING, GENERATED_JOB_MIDNIGHT):
+            for job in app.job_queue.get_jobs_by_name(name):
+                job.schedule_removal()
+
+        app.job_queue.run_once(
+            callback,
+            when=targets["morning_dt"],
+            name=GENERATED_JOB_MORNING,
+            data={"reason": "generated:morning"},
+        )
+        app.job_queue.run_once(
+            callback,
+            when=targets["evening_dt"],
+            name=GENERATED_JOB_EVENING,
+            data={"reason": "generated:evening"},
+        )
+        app.job_queue.run_once(
+            callback,
+            when=targets["midnight_dt"],
+            name=GENERATED_JOB_MIDNIGHT,
+            data={"reason": "generated:midnight"},
+        )
+        return {
+            "morning": targets["morning_dt"].isoformat(),
+            "evening": targets["evening_dt"].isoformat(),
+            "midnight": targets["midnight_dt"].isoformat(),
+        }
+
     def _load_or_create_window_state(self, now: dt.datetime) -> dict:
         state = read_json(self._config.uportal_window_state_file, {})
         today = now.date().isoformat()
@@ -154,6 +194,72 @@ class UportalService:
 
     def _save_window_state(self, state: dict) -> None:
         write_json(self._config.uportal_window_state_file, state)
+
+    def _load_or_create_generated_targets(self, state: dict, now: dt.datetime) -> dict[str, dt.datetime]:
+        today_iso = now.date().isoformat()
+        existing_for = state.get("generated_for")
+        generated = state.get("generated_targets", {})
+        if existing_for == today_iso and isinstance(generated, dict):
+            parsed = self._parse_generated_targets(generated)
+            if parsed:
+                return parsed
+
+        morning_dt = dt.datetime(now.year, now.month, now.day, 10, self._rng.randint(0, 10), 0, tzinfo=BERLIN_TZ)
+        evening_dt = dt.datetime(now.year, now.month, now.day, 20, self._rng.randint(0, 10), 0, tzinfo=BERLIN_TZ)
+        tomorrow = now.date() + dt.timedelta(days=1)
+        midnight_dt = dt.datetime(
+            tomorrow.year,
+            tomorrow.month,
+            tomorrow.day,
+            0,
+            self._rng.randint(0, 10),
+            0,
+            tzinfo=BERLIN_TZ,
+        )
+
+        if morning_dt <= now:
+            morning_dt = now + dt.timedelta(minutes=1)
+        if evening_dt <= now:
+            evening_dt = now + dt.timedelta(minutes=1)
+        if midnight_dt <= now:
+            midnight_dt = now + dt.timedelta(minutes=1)
+
+        state["generated_for"] = today_iso
+        state["generated_targets"] = {
+            "morning": morning_dt.isoformat(),
+            "evening": evening_dt.isoformat(),
+            "midnight": midnight_dt.isoformat(),
+        }
+        return {
+            "morning_dt": morning_dt,
+            "evening_dt": evening_dt,
+            "midnight_dt": midnight_dt,
+        }
+
+    @staticmethod
+    def _parse_generated_targets(payload: dict) -> dict[str, dt.datetime] | None:
+        morning = UportalService._parse_iso_dt(payload.get("morning"))
+        evening = UportalService._parse_iso_dt(payload.get("evening"))
+        midnight = UportalService._parse_iso_dt(payload.get("midnight"))
+        if not morning or not evening or not midnight:
+            return None
+        return {
+            "morning_dt": morning,
+            "evening_dt": evening,
+            "midnight_dt": midnight,
+        }
+
+    @staticmethod
+    def _parse_iso_dt(raw: object) -> dt.datetime | None:
+        if not isinstance(raw, str):
+            return None
+        try:
+            parsed = dt.datetime.fromisoformat(raw)
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=BERLIN_TZ)
+        return parsed.astimezone(BERLIN_TZ)
 
     def ignore_game_by_id(self, ignore_id: str) -> tuple[bool, str]:
         catalog = read_json(self._config.uportal_game_catalog_file, {})

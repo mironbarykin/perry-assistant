@@ -31,6 +31,14 @@ async def process_uportal_schedule_tick_job(context: ContextTypes.DEFAULT_TYPE) 
     await services.uportal_service.process_scheduled_tick(context)
 
 
+async def process_uportal_generated_scan_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    services = context.application.bot_data["services"]
+    reason = "generated"
+    if context.job and isinstance(context.job.data, dict):
+        reason = str(context.job.data.get("reason", reason))
+    await services.uportal_service.run_generated_scan(context, reason=reason)
+
+
 async def uportal_ignored(update: Update, context: CallbackContext) -> None:
     if not update.message:
         return

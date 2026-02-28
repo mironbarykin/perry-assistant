@@ -136,6 +136,21 @@ async def send_morning_message_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     )
     await _send_markdown(context, chat_id=services.config.miron_id, text=digest)
 
+    try:
+        await services.game_message_service.run_daily_scan(context)
+    except Exception as exc:  # noqa: BLE001
+        await context.bot.send_message(chat_id=services.config.miron_id, text=f"Game message scan failed: {exc}")
+
+    try:
+        from perry_assistant.bot.handlers.uportal import process_uportal_generated_scan_job
+
+        services.uportal_service.generate_daily_scan_jobs(
+            app=context.application,
+            callback=process_uportal_generated_scan_job,
+        )
+    except Exception as exc:  # noqa: BLE001
+        await context.bot.send_message(chat_id=services.config.miron_id, text=f"Uportal daily scheduling failed: {exc}")
+
 
 async def _reply_markdown(update: Update, text: str) -> None:
     if not update.message:
