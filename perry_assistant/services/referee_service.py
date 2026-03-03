@@ -259,6 +259,10 @@ class RefereeService:
         self._calendar = calendar_client
         self._gym = gym_client
 
+    def refresh_google_clients(self) -> None:
+        self._gmail.invalidate_service_cache()
+        self._calendar.invalidate_service_cache()
+
     async def process_new_emails(self, context: ContextTypes.DEFAULT_TYPE) -> None:
         processed_ids = read_json(self._config.processed_emails_file, [])
         processed_ids = processed_ids[-100:]

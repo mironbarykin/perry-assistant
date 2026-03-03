@@ -63,8 +63,8 @@ async def handle_auth_code(update: Update, context: CallbackContext) -> None:
         flow.fetch_token(code=code)
         with services.config.token_pickle_file.open("wb") as token_file:
             pickle.dump(flow.credentials, token_file)
+        services.referee_service.refresh_google_clients()
         context.application.bot_data["pending_auth"] = None
         await update.message.reply_text("Google authentication updated.")
     except Exception as exc:  # noqa: BLE001
         await update.message.reply_text(f"Authentication failed: {exc}")
-

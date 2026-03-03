@@ -16,7 +16,7 @@ from telegram.ext import (
 
 from perry_assistant.constants import BERLIN_TZ
 from perry_assistant.bot.error_handler import error_handler
-from perry_assistant.bot.handlers import absences, admin, common, referee, schedule, stats, uportal, weather
+from perry_assistant.bot.handlers import absences, admin, common, game_messages, referee, schedule, stats, uportal, weather
 from perry_assistant.domain.types import AppServices
 
 
@@ -35,6 +35,7 @@ def build_application(services: AppServices) -> Application:
     app.add_handler(CommandHandler("weatherloc", weather.weatherloc))
     app.add_handler(CommandHandler("myid", common.myid))
     app.add_handler(CommandHandler("emails", referee.emails))
+    app.add_handler(CommandHandler("games", game_messages.games))
     app.add_handler(CommandHandler("uportal", uportal.uportal))
     app.add_handler(CommandHandler("uportal_ignored", uportal.uportal_ignored))
     app.add_handler(CommandHandler("parents", admin.parents))
@@ -69,6 +70,7 @@ def build_application(services: AppServices) -> Application:
     app.add_handler(MessageHandler(filters.Regex(r"^4/.*"), referee.handle_auth_code))
     app.add_handler(MessageHandler(filters.LOCATION, weather.receive_weather_location))
     app.add_handler(CallbackQueryHandler(uportal.ignore_uportal_game, pattern=r"^uio:"))
+    app.add_handler(CallbackQueryHandler(game_messages.select_game, pattern=r"^gmsg:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, common.button_handler))
     app.add_error_handler(error_handler)
 

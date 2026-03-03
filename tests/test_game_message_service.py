@@ -214,3 +214,99 @@ def test_wednesday_scan_sends_weekend_drafts(app_config, monkeypatch):
     asyncio.run(service.run_daily_scan(_context(bot)))
 
     assert any("Gym Weekend" in item for item in bot.messages)
+
+
+def test_list_upcoming_games_filters_by_requested_range(app_config):
+    now = dt.datetime(2026, 3, 3, 9, 0, tzinfo=BERLIN_TZ)
+    within_start = now + dt.timedelta(days=2)
+    outside_start = now + dt.timedelta(days=9)
+    events = [
+        _raw_event(
+            event_id="in-range",
+            summary="2JRLER16W Referee Game",
+            start=within_start,
+            end=within_start + dt.timedelta(hours=2),
+            location="Gym A",
+            description="Referees: Dorrani, Sebastian, Barykin, Miron",
+        ),
+        _raw_event(
+            event_id="out-range",
+            summary="Coach Game GUEST (U16-2)",
+            start=outside_start,
+            end=outside_start + dt.timedelta(hours=2),
+            location="Gym B",
+            description="TV - Gegner",
+        ),
+    ]
+    service = GameMessageService(app_config, _FakeCalendarClient(events))
+
+    upcoming = service.list_upcoming_games(days=7, now=now)
+
+    assert [item.event_id for item in upcoming] == ["in-range"]
+
+
+def test_build_drafts_for_selected_game_uses_event_id_and_start(app_config):
+    now = dt.datetime(2026, 3, 3, 9, 0, tzinfo=BERLIN_TZ)
+    start = now + dt.timedelta(days=1)
+    events = [
+        _raw_event(
+            event_id="selected",
+            summary="2JRLER16W Referee Game",
+            start=start,
+            end=start + dt.timedelta(hours=2),
+            location="Gym C",
+            description="Referees: Dorrani, Sebastian, Barykin, Miron",
+        )
+    ]
+    service = GameMessageService(app_config, _FakeCalendarClient(events))
+
+    drafts = service.build_drafts_for_selected_game(
+        event_id="selected",
+        start_iso=start.isoformat(),
+        now=now,
+    )
+
+    assert drafts
+    assert any("Gym C" in item.text for item in drafts)
+
+
+def test_referee_draft_shows_city_not_full_address_and_caps_placeholder(app_config):
+    now = dt.datetime(2026, 3, 3, 9, 0, tzinfo=BERLIN_TZ)
+    start = now + dt.timedelta(days=1)
+    events = [
+        _raw_event(
+            event_id="city1",
+            summary="2JRLER16W Referee Game",
+            start=start,
+            end=start + dt.timedelta(hours=2),
+            location="Goerresstrasse 6, 40670 Meerbusch",
+            description="Referees: Dorrani, Sebastian, Barykin, Miron",
+        ),
+        _raw_event(
+            event_id="city2",
+            summary="2RLU16W Referee Game",
+            start=start + dt.timedelta(days=1),
+            end=start + dt.timedelta(days=1, hours=2),
+            location="",
+            description="Referees: Dorrani, Sebastian, Barykin, Miron",
+        ),
+    ]
+    service = GameMessageService(app_config, _FakeCalendarClient(events))
+
+    drafts_with_city = service.build_drafts_for_selected_game(
+        event_id="city1",
+        start_iso=start.isoformat(),
+        now=now,
+    )
+    drafts_with_placeholder = service.build_drafts_for_selected_game(
+        event_id="city2",
+        start_iso=(start + dt.timedelta(days=1)).isoformat(),
+        now=now,
+    )
+
+    assert drafts_with_city
+    assert "Meerbusch" in drafts_with_city[0].text
+    assert "Goerresstrasse" not in drafts_with_city[0].text
+    assert "40670" not in drafts_with_city[0].text
+    assert drafts_with_placeholder
+    assert " CITY " in f" {drafts_with_placeholder[0].text} "

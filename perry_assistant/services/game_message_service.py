@@ -84,6 +84,46 @@ class GameMessageService:
 
         self._save_state(state)
 
+    def list_upcoming_games(self, days: int = 7, now: dt.datetime | None = None) -> list[ParsedGameEvent]:
+        days = max(1, days)
+        start = (now or dt.datetime.now(BERLIN_TZ)).astimezone(BERLIN_TZ)
+        end = start + dt.timedelta(days=days)
+        events = self._calendar.get_basketball_events_between(start, end)
+        parsed = self._parse_events(events)
+        return sorted(
+            [item for item in parsed if start <= item.start <= end],
+            key=lambda item: item.start,
+        )
+
+    def build_drafts_for_selected_game(
+        self,
+        event_id: str,
+        start_iso: str | None = None,
+        now: dt.datetime | None = None,
+    ) -> list[DraftMessage]:
+        if not event_id.strip():
+            return []
+
+        start_filter: dt.datetime | None = None
+        if isinstance(start_iso, str) and start_iso.strip():
+            try:
+                parsed_start = dt.datetime.fromisoformat(start_iso)
+                if parsed_start.tzinfo is None:
+                    parsed_start = parsed_start.replace(tzinfo=BERLIN_TZ)
+                start_filter = parsed_start.astimezone(BERLIN_TZ)
+            except ValueError:
+                start_filter = None
+
+        candidates = self.list_upcoming_games(days=21, now=now)
+        selected = [item for item in candidates if item.event_id == event_id]
+        if start_filter is not None:
+            selected = [item for item in selected if item.start == start_filter]
+        if not selected:
+            return []
+
+        rules = self._load_rules()
+        return self._build_drafts_for_events([selected[0]], rules)
+
     def _fetch_events(self, now: dt.datetime) -> list[dict]:
         start = (now - dt.timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
         end = (now + dt.timedelta(days=21)).replace(hour=23, minute=59, second=59, microsecond=0)
@@ -326,12 +366,12 @@ class GameMessageService:
         )
         closing_tmpl = self._pick(closings, games[0].event_id + "cls", "Bis dann! VG Miron ;)")
 
-        partner_label = partner or "Kollege"
+        partner_label = partner or "KOLLEGE"
         greeting = greeting_tmpl.format(name=partner_label)
         arrival_line = arrival_tmpl.format(min=arrival_min, max=arrival_max)
         closing = closing_tmpl
         day_label = GERMAN_WEEKDAYS[games[0].start.weekday()]
-        location = games[0].location or "der Halle"
+        location = self._referee_city_label(games[0].location)
 
         if len(games) == 1:
             game = games[0]
@@ -425,7 +465,7 @@ class GameMessageService:
     def _extract_league(summary: str) -> str:
         match = re.split(r"referee game", summary, flags=re.IGNORECASE)
         value = match[0].strip(" \t👍🎖️")
-        return value or "League"
+        return value or "LEAGUE"
 
     @staticmethod
     def _extract_team(summary: str) -> str:
@@ -519,6 +559,27 @@ class GameMessageService:
                 wash = str(item.get("wash", "NAME")).strip() or "NAME"
                 return {"bring": bring, "wash": wash}
         return {"bring": "NAME", "wash": "NAME"}
+
+    @staticmethod
+    def _referee_city_label(location: str) -> str:
+        raw = str(location or "").replace("\n", " ").strip(" ,")
+        if not raw:
+            return "CITY"
+
+        parts = [item.strip() for item in raw.split(",") if item.strip()]
+        candidate = parts[-1] if parts else raw
+        candidate = re.sub(r"^\d{4,5}\s+", "", candidate).strip()
+
+        if candidate and not re.search(r"\d", candidate):
+            if len(parts) > 1 or len(candidate.split()) <= 2:
+                return candidate
+
+        postal_match = re.search(r"\b\d{4,5}\s+([A-Za-zÄÖÜäöüß][A-Za-zÄÖÜäöüß\-\s]+)$", raw)
+        if postal_match:
+            city = postal_match.group(1).strip()
+            if city:
+                return city
+        return "CITY"
 
     @staticmethod
     def _is_sent(state: dict, key: str) -> bool:

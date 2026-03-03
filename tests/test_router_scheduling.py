@@ -11,3 +11,8 @@ def test_morning_job_triggers_operational_scans():
     assert "game_message_service.run_daily_scan" in schedule_handler
     assert "generate_daily_scan_jobs" in schedule_handler
 
+
+def test_router_registers_games_command_and_picker_callback():
+    router = Path("perry_assistant/bot/router.py").read_text(encoding="utf-8")
+    assert 'CommandHandler("games", game_messages.games)' in router
+    assert 'CallbackQueryHandler(game_messages.select_game, pattern=r"^gmsg:")' in router

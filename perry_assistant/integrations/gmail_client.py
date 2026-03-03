@@ -24,6 +24,9 @@ class GmailClient:
         self._service_cache = build("gmail", "v1", credentials=creds)
         return self._service_cache
 
+    def invalidate_service_cache(self) -> None:
+        self._service_cache = None
+
     def get_basketball_email_ids(self, max_results: int = 10) -> list[dict[str, str]]:
         query = " OR ".join(f"from:{sender}" for sender in self._config.basketball_senders)
         response = self._service().users().messages().list(

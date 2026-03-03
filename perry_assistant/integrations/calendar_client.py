@@ -58,6 +58,11 @@ class CalendarClient:
         self._service_cache = build("calendar", "v3", credentials=creds)
         return self._service_cache
 
+    def invalidate_service_cache(self) -> None:
+        self._service_cache = None
+        self._calendar_list_cache = None
+        self._calendar_list_cache_expires_at = dt.datetime.min.replace(tzinfo=dt.UTC)
+
     def get_all_calendars(self, force_refresh: bool = False) -> list[dict[str, Any]]:
         now = dt.datetime.now(dt.UTC)
         if not force_refresh and self._calendar_list_cache is not None and now < self._calendar_list_cache_expires_at:

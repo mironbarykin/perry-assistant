@@ -34,7 +34,7 @@ async def start(update: Update, context: CallbackContext) -> None:
 
     command_text = "Commands: /today /tomorrow /weekend"
     if is_admin:
-        command_text += " /absence /absences /excused /excuse /published /setweatherloc /weatherloc"
+        command_text += " /absence /absences /excused /excuse /published /setweatherloc /weatherloc /games"
 
     await update.message.reply_text(
         (
