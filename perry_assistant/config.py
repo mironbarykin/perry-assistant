@@ -40,6 +40,11 @@ class AppConfig:
     uportal_login_name: str | None
     uportal_login_password: str | None
     uportal_login_url: str
+    michi_id: int
+    untis_users_file: Path
+    untis_timetable_state_file: Path
+    untis_server: str
+    untis_school: str
 
 
 def _to_path(value: str | None, default: str) -> Path:
@@ -101,4 +106,9 @@ def load_config() -> AppConfig:
             "UPORTAL_LOGIN_URL",
             "https://www.uportal-wbv.de/index.php?o=login&cookie=done",
         ),
+        michi_id=int(os.getenv("MICHI_ID", "0")),
+        untis_users_file=data_dir / "untis_users.json",
+        untis_timetable_state_file=data_dir / "untis_timetable_state.json",
+        untis_server=os.getenv("UNTIS_SERVER", "thalia.webuntis.com"),
+        untis_school=os.getenv("UNTIS_SCHOOL", ""),
     )

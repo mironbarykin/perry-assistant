@@ -15,6 +15,7 @@ from perry_assistant.services.notification_service import NotificationService
 from perry_assistant.services.referee_service import RefereeService
 from perry_assistant.services.schedule_service import ScheduleService
 from perry_assistant.services.stats_service import StatsService
+from perry_assistant.services.untis_service import UntisService
 from perry_assistant.services.uportal_service import UportalService
 from perry_assistant.services.weather_archive_service import WeatherArchiveService
 from perry_assistant.services.weather_location_service import WeatherLocationService
@@ -38,6 +39,7 @@ def build_services() -> AppServices:
     absence_service = AbsenceService(config)
     game_message_service = GameMessageService(config, calendar_client)
     uportal_service = UportalService(config, uportal_client, calendar_client)
+    untis_service = UntisService(config)
     weather_location_service = WeatherLocationService(config)
     weather_archive_service = WeatherArchiveService(config, weather_client, weather_location_service)
     stats_service = StatsService(config)
@@ -49,6 +51,7 @@ def build_services() -> AppServices:
         absence_service=absence_service,
         game_message_service=game_message_service,
         uportal_service=uportal_service,
+        untis_service=untis_service,
         stats_service=stats_service,
         weather_location_service=weather_location_service,
         weather_archive_service=weather_archive_service,

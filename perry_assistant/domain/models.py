@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(slots=True)
@@ -68,3 +68,58 @@ class UportalGame:
     distance_km: float
     detail_url: str = ""
     is_umb_offen: bool = False
+
+
+@dataclass(slots=True)
+class UntisCredentials:
+    server: str
+    school: str
+    username: str
+    password: str
+
+
+@dataclass(slots=True)
+class UntisPeriod:
+    id: int
+    date: str          # "YYYY-MM-DD"
+    start_time: str    # "HH:MM"
+    end_time: str      # "HH:MM"
+    subject: str
+    teacher: str
+    room: str
+    code: str | None   # None, "cancelled", "irregular"
+    lesson_number: int | None = None
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "date": self.date,
+            "start_time": self.start_time,
+            "end_time": self.end_time,
+            "subject": self.subject,
+            "teacher": self.teacher,
+            "room": self.room,
+            "code": self.code,
+            "lesson_number": self.lesson_number,
+        }
+
+    @staticmethod
+    def from_dict(data: dict) -> "UntisPeriod":
+        return UntisPeriod(
+            id=data["id"],
+            date=data["date"],
+            start_time=data["start_time"],
+            end_time=data["end_time"],
+            subject=data["subject"],
+            teacher=data["teacher"],
+            room=data["room"],
+            code=data.get("code"),
+            lesson_number=data.get("lesson_number"),
+        )
+
+
+@dataclass(slots=True)
+class TimetableChange:
+    change_type: str   # "cancelled", "restored", "irregular", "new_exam", "modified"
+    period: UntisPeriod
+    old_period: UntisPeriod | None = None
