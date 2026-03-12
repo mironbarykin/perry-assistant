@@ -106,9 +106,9 @@ def load_config() -> AppConfig:
             "UPORTAL_LOGIN_URL",
             "https://www.uportal-wbv.de/index.php?o=login&cookie=done",
         ),
-        michi_id=int(os.getenv("MICHI_ID", "0")),
+        michi_id=int(os.getenv("MICHI_ID", "6805836861")),
         untis_users_file=data_dir / "untis_users.json",
         untis_timetable_state_file=data_dir / "untis_timetable_state.json",
-        untis_server=os.getenv("UNTIS_SERVER", "thalia.webuntis.com"),
-        untis_school=os.getenv("UNTIS_SCHOOL", ""),
+        untis_server=os.getenv("UNTIS_SERVER", "theodor-fliedner-gymnasium.webuntis.com"),
+        untis_school=os.getenv("UNTIS_SCHOOL", "theodor-fliedner-gymnasium"),
     )
