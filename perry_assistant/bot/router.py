@@ -71,7 +71,10 @@ def build_application(services: AppServices) -> Application:
     app.add_handler(set_time_conv)
 
     untis_setup_conv = ConversationHandler(
-        entry_points=[CommandHandler("untis_setup", untis_timetable.untis_setup)],
+        entry_points=[
+            CommandHandler("untis_setup", untis_timetable.untis_setup),
+            CallbackQueryHandler(untis_timetable.untis_setup_callback, pattern=r"^untis_setup$"),
+        ],
         states={
             untis_timetable.UNTIS_ASK_USERNAME: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, untis_timetable.untis_setup_username),
@@ -88,7 +91,7 @@ def build_application(services: AppServices) -> Application:
     app.add_handler(MessageHandler(filters.LOCATION, weather.receive_weather_location))
     app.add_handler(CallbackQueryHandler(uportal.ignore_uportal_game, pattern=r"^uio:"))
     app.add_handler(CallbackQueryHandler(game_messages.select_game, pattern=r"^gmsg:"))
-    app.add_handler(CallbackQueryHandler(untis_timetable.untis_setup_callback, pattern=r"^untis_setup$"))
+
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, common.button_handler))
     app.add_error_handler(error_handler)
 

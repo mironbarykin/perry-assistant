@@ -123,16 +123,17 @@ async def untis_disconnect(update: Update, context: CallbackContext) -> None:
         await update.message.reply_text("Du hattest keine Untis-Verbindung.")
 
 
-async def untis_setup_callback(update: Update, context: CallbackContext) -> None:
-    """Handle inline button 'untis_setup'."""
+async def untis_setup_callback(update: Update, context: CallbackContext) -> int:
+    """Handle inline button 'untis_setup' – enters the ConversationHandler."""
     query = update.callback_query
     if not query:
-        return
+        return ConversationHandler.END
     await query.answer()
     await query.message.reply_text(
         "🏫 *Untis Setup*\n\nBitte gib deinen Untis-Benutzernamen ein:",
         parse_mode=ParseMode.MARKDOWN,
     )
+    return UNTIS_ASK_USERNAME
 
 
 # ---------------------------------------------------------------------------
