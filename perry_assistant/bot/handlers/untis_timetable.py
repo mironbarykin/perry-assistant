@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 # ConversationHandler states
 UNTIS_ASK_USERNAME = 10
 UNTIS_ASK_PASSWORD = 11
+_MAX_MESSAGE_LEN = 3500
+_MAX_CHANGE_LINES = 40
 
 
 async def untis_setup(update: Update, context: CallbackContext) -> int:
@@ -106,8 +108,29 @@ async def untis_status(update: Update, context: CallbackContext) -> None:
         )
         return
 
+    try:
+        changes = services.untis_service.refresh_user_timetable(user_id)
+    except Exception:
+        await update.message.reply_text(
+            "⚠️ Konnte den Untis-Stundenplan gerade nicht abrufen. Bitte versuche es später erneut."
+        )
+        return
+
     digest = services.untis_service.daily_digest_for_user(user_id)
-    await update.message.reply_text(digest, parse_mode=ParseMode.MARKDOWN)
+    if changes:
+        change_lines = [format_change_notification(ch) for ch in changes]
+        if len(change_lines) > _MAX_CHANGE_LINES:
+            summary = _summarize_changes(changes)
+            omitted = len(change_lines) - _MAX_CHANGE_LINES
+            change_lines = (
+                [summary]
+                + change_lines[:_MAX_CHANGE_LINES]
+                + [f"... {omitted} weitere Ã„nderungen ausgeblendet."]
+            )
+        text = "\n".join(change_lines + ["", digest])
+    else:
+        text = digest
+    await _reply_with_chunks(update.message, text, parse_mode=ParseMode.MARKDOWN)
 
 
 async def untis_disconnect(update: Update, context: CallbackContext) -> None:
@@ -158,12 +181,66 @@ async def check_timetable_changes_job(context: ContextTypes.DEFAULT_TYPE) -> Non
         msgs = [format_change_notification(ch) for ch in changes]
         if not msgs:
             continue
+        if len(msgs) > _MAX_CHANGE_LINES:
+            summary = _summarize_changes(changes)
+            omitted = len(msgs) - _MAX_CHANGE_LINES
+            msgs = [summary] + msgs[:_MAX_CHANGE_LINES] + [f"... {omitted} weitere Ã„nderungen ausgeblendet."]
         text = "\n".join(msgs)
         try:
-            await context.bot.send_message(
-                chat_id=user_id,
-                text=text,
-                parse_mode=ParseMode.MARKDOWN,
-            )
+            await _send_with_chunks(context.bot, user_id, text, parse_mode=ParseMode.MARKDOWN)
         except Exception as exc:
             logger.warning("Failed to send Untis notification to %s: %s", user_id, exc)
+
+
+def _split_message(text: str, max_len: int = _MAX_MESSAGE_LEN) -> list[str]:
+    lines = text.split("\n")
+    chunks: list[str] = []
+    current = ""
+    for line in lines:
+        if not current:
+            candidate = line
+        else:
+            candidate = current + "\n" + line
+        if len(candidate) <= max_len:
+            current = candidate
+            continue
+        if current:
+            chunks.append(current)
+            current = ""
+        while len(line) > max_len:
+            chunks.append(line[:max_len])
+            line = line[max_len:]
+        current = line
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+async def _reply_with_chunks(message, text: str, parse_mode: str) -> None:
+    for chunk in _split_message(text):
+        await message.reply_text(chunk, parse_mode=parse_mode)
+
+
+async def _send_with_chunks(bot, chat_id: int, text: str, parse_mode: str) -> None:
+    for chunk in _split_message(text):
+        await bot.send_message(chat_id=chat_id, text=chunk, parse_mode=parse_mode)
+
+
+def _summarize_changes(changes) -> str:
+    counts: dict[str, int] = {}
+    for ch in changes:
+        counts[ch.change_type] = counts.get(ch.change_type, 0) + 1
+    parts: list[str] = []
+    if counts.get("cancelled"):
+        parts.append(f"âŒ {counts['cancelled']} entfallen")
+    if counts.get("restored"):
+        parts.append(f"âœ… {counts['restored']} wieder da")
+    if counts.get("irregular"):
+        parts.append(f"âš ï¸ {counts['irregular']} Vertretung")
+    if counts.get("new_exam"):
+        parts.append(f"ðŸ“ {counts['new_exam']} PrÃ¼fung")
+    if counts.get("modified"):
+        parts.append(f"ðŸ”„ {counts['modified']} geÃ¤ndert")
+    if not parts:
+        return "â„¹ï¸ Ã„nderungen vorhanden."
+    return "â„¹ï¸ Ã„nderungen: " + ", ".join(parts)

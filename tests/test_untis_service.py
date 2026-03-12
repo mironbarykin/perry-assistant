@@ -230,6 +230,61 @@ class TestUntisServiceTimetableState:
 
 
 # ---------------------------------------------------------------------------
+# UntisService – refresh_user_timetable
+# ---------------------------------------------------------------------------
+
+class _DummyClient:
+    def __init__(self, periods: list[UntisPeriod]):
+        self._periods = periods
+
+    def fetch_timetable(self, start: dt.date, end: dt.date) -> list[UntisPeriod]:
+        return self._periods
+
+
+class TestUntisServiceRefresh:
+    def test_refresh_first_sync_baseline(self, app_config, monkeypatch):
+        app_config.data_dir.mkdir(parents=True, exist_ok=True)
+        svc = UntisService(app_config)
+        creds = UntisCredentials(
+            server="thalia.webuntis.com",
+            school="TestSchool",
+            username="student1",
+            password="secret",
+        )
+        svc.save_credentials(42, creds)
+        periods = [_period(subject="MATH")]
+
+        monkeypatch.setattr(svc, "_make_client", lambda _: _DummyClient(periods))
+
+        changes = svc.refresh_user_timetable(42)
+        assert changes == []
+        loaded = svc.load_user_timetable(42)
+        assert len(loaded) == 1
+        assert loaded[0].subject == "MATH"
+
+    def test_refresh_detects_changes(self, app_config, monkeypatch):
+        app_config.data_dir.mkdir(parents=True, exist_ok=True)
+        svc = UntisService(app_config)
+        creds = UntisCredentials(
+            server="thalia.webuntis.com",
+            school="TestSchool",
+            username="student1",
+            password="secret",
+        )
+        svc.save_credentials(55, creds)
+
+        old = _period(teacher="Mueller")
+        svc.save_user_timetable(55, [old])
+        new = _period(teacher="Schmidt")
+
+        monkeypatch.setattr(svc, "_make_client", lambda _: _DummyClient([new]))
+
+        changes = svc.refresh_user_timetable(55)
+        assert len(changes) == 1
+        assert changes[0].change_type == "modified"
+
+
+# ---------------------------------------------------------------------------
 # UntisService – daily digest
 # ---------------------------------------------------------------------------
 

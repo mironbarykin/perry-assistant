@@ -222,24 +222,11 @@ class UntisService:
 
         Returns an empty list if the user has no credentials or the fetch fails.
         """
-        creds = self.get_credentials(user_id)
-        if not creds:
-            return []
-
-        today = dt.date.today()
-        end = today + dt.timedelta(days=_LOOKAHEAD_DAYS)
-
-        client = self._make_client(creds)
         try:
-            new_periods = client.fetch_timetable(today, end)
+            return self.refresh_user_timetable(user_id)
         except Exception as exc:
             logger.error("Untis fetch failed for user %s: %s", user_id, exc)
             return []
-
-        old_periods = self.load_user_timetable(user_id)
-        changes = detect_changes(old_periods, new_periods)
-        self.save_user_timetable(user_id, new_periods)
-        return changes
 
     def check_all_users_for_changes(self) -> dict[int, list[TimetableChange]]:
         """Run change detection for every registered user."""
@@ -250,6 +237,33 @@ class UntisService:
             if changes:
                 result[uid] = changes
         return result
+
+    def refresh_user_timetable(self, user_id: int) -> list[TimetableChange]:
+        """
+        Fetch and persist the latest timetable for a user.
+
+        If this is the first successful sync (no stored state yet), the
+        timetable is saved as baseline and no changes are returned.
+        """
+        creds = self.get_credentials(user_id)
+        if not creds:
+            return []
+
+        today = dt.date.today()
+        end = today + dt.timedelta(days=_LOOKAHEAD_DAYS)
+
+        client = self._make_client(creds)
+        new_periods = client.fetch_timetable(today, end)
+
+        state = self._load_state()
+        if str(user_id) not in state:
+            self.save_user_timetable(user_id, new_periods)
+            return []
+
+        old_periods = self.load_user_timetable(user_id)
+        changes = detect_changes(old_periods, new_periods)
+        self.save_user_timetable(user_id, new_periods)
+        return changes
 
     # ------------------------------------------------------------------
     # Daily digest
@@ -270,11 +284,17 @@ class UntisService:
             status = ""
             if p.code == "cancelled":
                 status = " ❌ ENTFÄLLT"
+                color = "🔴"
             elif p.code == "irregular":
                 status = " ⚠️ Vertretung"
+                color = "🟡"
+            else:
+                color = "🟢"
             ln = p.lesson_number
             prefix = f"{ln}." if ln else p.start_time
-            lines.append(f"  {prefix} {p.subject or '?'} ({p.start_time}-{p.end_time}){status}")
+            lines.append(
+                f"  {color} {prefix} {p.subject or '?'} ({p.start_time}-{p.end_time}){status}"
+            )
 
         cancelled = [p for p in today_periods if p.code == "cancelled"]
         if cancelled:
