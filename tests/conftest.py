@@ -39,4 +39,9 @@ def app_config(tmp_path: Path) -> AppConfig:
         uportal_login_name="test-user",
         uportal_login_password="test-pass",
         uportal_login_url="https://www.uportal-wbv.de/index.php?o=login&cookie=done",
+        michi_id=789012,
+        untis_users_file=data_dir / "untis_users.json",
+        untis_timetable_state_file=data_dir / "untis_timetable_state.json",
+        untis_server="thalia.webuntis.com",
+        untis_school="test-school",
     )

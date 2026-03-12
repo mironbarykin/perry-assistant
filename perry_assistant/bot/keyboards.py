@@ -1,4 +1,4 @@
-from telegram import KeyboardButton, ReplyKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 
 
 def build_schedule_keyboard() -> ReplyKeyboardMarkup:
@@ -9,11 +9,17 @@ def build_schedule_keyboard() -> ReplyKeyboardMarkup:
 
 def build_main_keyboard(is_admin: bool) -> ReplyKeyboardMarkup:
     base_row = [KeyboardButton("TODAY"), KeyboardButton("SCHEDULE")]
-    second_row = []
+    second_row = [KeyboardButton("UNTIS")]
     if is_admin:
         second_row.append(KeyboardButton("ABSENCES"))
         second_row.append(KeyboardButton("REFEREE"))
-    return ReplyKeyboardMarkup([base_row, second_row] if second_row else [base_row], resize_keyboard=True)
+    return ReplyKeyboardMarkup([base_row, second_row], resize_keyboard=True)
+
+
+def build_untis_setup_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton("🏫 Untis einrichten", callback_data="untis_setup")]]
+    )
 
 
 def build_absences_menu_keyboard() -> ReplyKeyboardMarkup:
