@@ -13,7 +13,10 @@ def _button_texts(markup) -> list[list[str]]:  # noqa: ANN001
 def test_main_keyboard_admin_contains_referee_button():
     layout = _button_texts(build_main_keyboard(is_admin=True))
     assert ["TODAY", "SCHEDULE"] in layout
-    assert ["ABSENCES", "REFEREE"] in layout
+    all_buttons = [btn for row in layout for btn in row]
+    assert "ABSENCES" in all_buttons
+    assert "REFEREE" in all_buttons
+    assert "UNTIS" in all_buttons
 
 
 def test_referee_menu_contains_expected_buttons():

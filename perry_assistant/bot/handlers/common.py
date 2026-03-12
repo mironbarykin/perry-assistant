@@ -9,7 +9,7 @@ from perry_assistant.bot.keyboards import (
     build_schedule_keyboard,
 )
 from perry_assistant.domain.types import AppServices
-from perry_assistant.storage.json_store import read_json, write_json
+from perry_assistant.storage.json_store import read_json
 
 
 SET_TIME_STATE = 1
@@ -26,24 +26,50 @@ async def start(update: Update, context: CallbackContext) -> None:
         return
 
     is_admin = user.id == services.config.miron_id
+    is_parent = False
     if not is_admin:
         parents = read_json(services.config.parents_file, [])
-        if user.id not in parents:
-            parents.append(user.id)
-            write_json(services.config.parents_file, parents)
+        if user.id in parents:
+            is_parent = True
 
-    command_text = "Commands: /today /tomorrow /weekend"
-    if is_admin:
-        command_text += " /absence /absences /excused /excuse /published /setweatherloc /weatherloc /games"
+    # Admins and pre-registered parents get the full command menu
+    if is_admin or is_parent:
+        command_text = "Commands: /today /tomorrow /weekend"
+        if is_admin:
+            command_text += " /absence /absences /excused /excuse /published /setweatherloc /weatherloc /games"
+        await update.message.reply_text(
+            (
+                "Welcome to Perry.\n"
+                "Use /settime to configure daily notifications.\n"
+                f"{command_text}"
+            ),
+            reply_markup=build_main_keyboard(is_admin),
+        )
+        return
 
-    await update.message.reply_text(
-        (
-            "Welcome to Perry.\n"
-            "Use /settime to configure daily notifications.\n"
-            f"{command_text}"
-        ),
-        reply_markup=build_main_keyboard(is_admin),
-    )
+    # New / unknown users: welcoming onboarding message with Untis setup button
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+    has_untis = services.untis_service.has_credentials(user.id)
+    if has_untis:
+        await update.message.reply_text(
+            "👋 Hi! Ich bin Perry.\n\n"
+            "Dein Untis-Account ist bereits verbunden.\n"
+            "Nutze /untis_status für den aktuellen Stundenplan oder "
+            "/untis_setup um deine Zugangsdaten zu aktualisieren.",
+        )
+    else:
+        keyboard = InlineKeyboardMarkup(
+            [[InlineKeyboardButton("🏫 Untis einrichten", callback_data="untis_setup")]]
+        )
+        await update.message.reply_text(
+            "👋 Hi! Ich bin Perry.\n\n"
+            "Ich kann deinen Untis-Stundenplan im Auge behalten und dich "
+            "benachrichtigen, wenn sich etwas ändert – damit du weißt, ob du "
+            "wirklich in die Schule musst 😉\n\n"
+            "Tippe unten auf den Button oder /untis_setup, um loszulegen!",
+            reply_markup=keyboard,
+        )
 
 
 async def settime(update: Update, context: CallbackContext) -> int:
@@ -182,4 +208,10 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
 
     if text == "BACK":
         await update.message.reply_text("OK", reply_markup=build_main_keyboard(is_admin))
+        return
+
+    if text == "UNTIS":
+        from perry_assistant.bot.handlers.untis_timetable import untis_status
+
+        await untis_status(update, context)
         return
