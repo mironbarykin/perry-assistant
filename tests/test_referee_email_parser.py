@@ -122,3 +122,16 @@ def test_parse_umbesetzung_datum_without_weekday():
     assignment = assignments[0]
     assert assignment.date == "28.02.2026"
     assert assignment.spielnummer == "61"
+
+
+def test_detect_email_type_spielaenderung_over_sr_ansetzung():
+    email_type = detect_email_type("Spieländerung - SR-Ansetzung", "Body")
+    assert email_type == "AENDERUNG"
+
+
+def test_detect_email_type_anderweitig_vergeben():
+    email_type = detect_email_type(
+        "Umbesetzung wurde anderweitig vergeben",
+        "Die folgende Umbesetzung wurde leider einem anderen Schiedsrichter zugewiesen.",
+    )
+    assert email_type == "UMBESETZUNG_VERGEBEN"

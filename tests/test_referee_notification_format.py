@@ -1,3 +1,5 @@
+import asyncio
+from types import SimpleNamespace
 from urllib.parse import quote_plus
 
 from perry_assistant.domain.models import RefereeAssignment
@@ -24,6 +26,14 @@ class _FakeGymClient:
         if hall_code == "311C511":
             return "Kopernikusstraße 20, 57413 Finnentrop"
         return None
+
+
+class _FakeBot:
+    def __init__(self) -> None:
+        self.messages: list[dict] = []
+
+    async def send_message(self, chat_id: int, text: str, **kwargs) -> None:
+        self.messages.append({"chat_id": chat_id, "text": text, "kwargs": kwargs})
 
 
 def test_referee_notification_format_with_clickable_maps_link(app_config):
@@ -53,3 +63,32 @@ def test_referee_notification_format_with_clickable_maps_link(app_config):
         "FC Finnentrop - TuS Fellinghausen 2"
     )
     assert text == expected
+
+
+
+def test_referee_notification_anderweitig_vergeben_is_quiet(app_config):
+    service = RefereeService(app_config, _FakeGmailClient(), _FakeCalendarClient(), _FakeGymClient())
+    assignment = RefereeAssignment(
+        type="UMBESETZUNG_VERGEBEN",
+        date="21.03.2026",
+        time="10:00",
+        liga="JOL1U10W",
+        spielnummer="1051",
+        teams="DJK TUSA 06 Düsseldorf - Citybasket Recklinghausen",
+        hall_code="311C511",
+    )
+
+    bot = _FakeBot()
+    context = SimpleNamespace(bot=bot)
+    asyncio.run(service._handle_assignment(context, assignment, multiple=False))  # noqa: SLF001
+
+    assert bot.messages
+    payload = bot.messages[0]
+    expected_url = f"https://maps.google.com/?q={quote_plus('Kopernikusstraße 20, 57413 Finnentrop')}"
+    expected = (
+        "\U0001F6AB UMBESETZUNG JOL1U10W #1051 wurde anderweitig vergeben\n"
+        f'Saturday 21.03.2026 10:00 @ <a href="{expected_url}">Kopernikusstraße 20, 57413 Finnentrop (311C511)</a>\n'
+        "DJK TUSA 06 Düsseldorf - Citybasket Recklinghausen"
+    )
+    assert payload["text"] == expected
+    assert payload["kwargs"].get("disable_notification") is True

@@ -106,6 +106,10 @@ def test_morning_digest_with_school_contains_two_weather_lines_and_location_prom
     assert "Location changed? /setweatherloc" in digest
     assert digest.strip().endswith("📊 Yesterday Perry was used 5 times, 2 of those by parents")
     assert len(weather.calls) == 2
+    first_call = weather.calls[0]
+    second_call = weather.calls[1]
+    assert first_call[1].hour == 6 and first_call[1].minute == 30
+    assert second_call[1] == target.replace(hour=14)
 
 
 def test_morning_digest_without_school_skips_weather_lines():

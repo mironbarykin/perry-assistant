@@ -371,7 +371,8 @@ class GameMessageService:
         arrival_line = arrival_tmpl.format(min=arrival_min, max=arrival_max)
         closing = closing_tmpl
         day_label = GERMAN_WEEKDAYS[games[0].start.weekday()]
-        location = self._referee_city_label(games[0].location)
+        raw_location = str(games[0].location or "").strip()
+        location = raw_location if raw_location else "CITY"
 
         if len(games) == 1:
             game = games[0]
@@ -386,7 +387,8 @@ class GameMessageService:
                 + ", ".join(game_parts)
                 + "."
             )
-        return "\n".join([greeting, body, arrival_line, closing]).strip()
+        shirt_line = "Habe neues Silber und Schwarz und altes Silber dabei!"
+        return "\n".join([greeting, body, arrival_line, shirt_line, closing]).strip()
 
     def _build_coach_drafts(self, events: list[ParsedGameEvent], rules: dict) -> list[DraftMessage]:
         drafts: list[DraftMessage] = []

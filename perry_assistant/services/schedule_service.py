@@ -86,11 +86,10 @@ class ScheduleService:
         active_coords = current_coords or home_coords
         school_events = [event for event in events if "school" in clean_text(event.line) and event.start]
         if school_events:
-            first_school_start = min(event.start for event in school_events if event.start)
             end_candidates = [event.end or event.start for event in school_events if event.start]
             last_school_end = max(end_candidates) if end_candidates else None
 
-            first_target = first_school_start - dt.timedelta(hours=1)
+            first_target = dt.datetime(today.year, today.month, today.day, 6, 30, tzinfo=BERLIN_TZ)
             first_weather = self._weather.get_weather(active_coords, first_target)
             lines.append(f"🏠- {weather_message(first_weather)}")
 
