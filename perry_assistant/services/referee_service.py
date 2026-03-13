@@ -55,6 +55,17 @@ def detect_email_type(subject: str, body: str) -> str | None:
     subject_l = subject.lower()
     body_l = body.lower()
 
+    if "anderweitig vergeben" in subject_l or "anderweitig vergeben" in body_l:
+        return "UMBESETZUNG_VERGEBEN"
+    if (
+        "spieländerung" in subject_l
+        or "spielaenderung" in subject_l
+        or "spielanderung" in subject_l
+        or "spieländerung" in body_l
+        or "spielaenderung" in body_l
+        or "spielanderung" in body_l
+    ):
+        return "AENDERUNG"
     if "sr-ansetzung" in subject_l:
         return "ANSETZUNG"
     if "umbesetzung" in subject_l or "umbesetzung" in body_l:
@@ -333,6 +344,20 @@ class RefereeService:
                 multiple=multiple,
             )
             await self._notify_admin(context, message, disable_notification=not available)
+            return
+
+        if assignment_type == "UMBESETZUNG_VERGEBEN":
+            league = assignment.liga or "-"
+            number = f" #{assignment.spielnummer}" if assignment.spielnummer else ""
+            header = f"🚫 UMBESETZUNG {league}{number} wurde anderweitig vergeben"
+            message = "\n".join(
+                [
+                    html.escape(header),
+                    when_where_line,
+                    html.escape(assignment.teams or "-"),
+                ]
+            )
+            await self._notify_admin(context, message, disable_notification=True)
             return
 
         if assignment_type in {"VERLEGUNG", "AENDERUNG"}:

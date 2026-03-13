@@ -270,7 +270,7 @@ def test_build_drafts_for_selected_game_uses_event_id_and_start(app_config):
     assert any("Gym C" in item.text for item in drafts)
 
 
-def test_referee_draft_shows_city_not_full_address_and_caps_placeholder(app_config):
+def test_referee_draft_shows_full_address_and_shirt_line(app_config):
     now = dt.datetime(2026, 3, 3, 9, 0, tzinfo=BERLIN_TZ)
     start = now + dt.timedelta(days=1)
     events = [
@@ -305,8 +305,8 @@ def test_referee_draft_shows_city_not_full_address_and_caps_placeholder(app_conf
     )
 
     assert drafts_with_city
-    assert "Meerbusch" in drafts_with_city[0].text
-    assert "Goerresstrasse" not in drafts_with_city[0].text
-    assert "40670" not in drafts_with_city[0].text
+    assert "Goerresstrasse 6, 40670 Meerbusch" in drafts_with_city[0].text
+    assert "Habe neues Silber und Schwarz und altes Silber dabei!" in drafts_with_city[0].text
     assert drafts_with_placeholder
     assert " CITY " in f" {drafts_with_placeholder[0].text} "
+    assert "Habe neues Silber und Schwarz und altes Silber dabei!" in drafts_with_placeholder[0].text
