@@ -132,17 +132,19 @@ def _get_subst_text(period) -> str:
 
 
 def _derive_status_code(raw_code: str | None, subst_text: str) -> str | None:
-    if raw_code:
-        code = str(raw_code).lower()
-        if code == "cancelled":
-            return "cancelled"
-        if code == "irregular":
-            return "irregular"
-
-    if subst_text:
-        if "eigenverantwortliches arbeiten" in subst_text.lower():
+    subst_lower = subst_text.lower() if subst_text else ""
+    if subst_lower:
+        # Only treat as cancelled when substitution text says EVA and not a block lesson.
+        if "eigenverantwortliches arbeiten" in subst_lower and "block" not in subst_lower:
             return "cancelled"
         return "irregular"
+
+    if raw_code:
+        code = str(raw_code).lower()
+        if code == "irregular":
+            return "irregular"
+        if code == "cancelled":
+            return "irregular"
 
     return None
 

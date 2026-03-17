@@ -43,8 +43,11 @@ class AppConfig:
     michi_id: int
     untis_users_file: Path
     untis_timetable_state_file: Path
+    untis_changes_file: Path
     untis_server: str
     untis_school: str
+    miron_school_calendar_id: str
+    michi_school_calendar_id: str
 
 
 def _to_path(value: str | None, default: str) -> Path:
@@ -109,6 +112,9 @@ def load_config() -> AppConfig:
         michi_id=int(os.getenv("MICHI_ID", "6805836861")),
         untis_users_file=data_dir / "untis_users.json",
         untis_timetable_state_file=data_dir / "untis_timetable_state.json",
+        untis_changes_file=data_dir / "untis_changes_state.json",
         untis_server=os.getenv("UNTIS_SERVER", "theodor-fliedner-gymnasium.webuntis.com"),
         untis_school=os.getenv("UNTIS_SCHOOL", "theodor-fliedner-gymnasium"),
+        miron_school_calendar_id=os.getenv("MIRON_SCHOOL_CALENDAR_ID", "d7797cf00146740f692501cf7b0082ffc0e434430aa665e58c73ab89d59fe88a"),
+        michi_school_calendar_id=os.getenv("MICHI_SCHOOL_CALENDAR_ID", "michael.kaushanski"),
     )

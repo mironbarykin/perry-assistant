@@ -7,6 +7,8 @@ from typing import Any
 from perry_assistant.config import AppConfig
 from perry_assistant.constants import BERLIN_TZ
 from perry_assistant.domain.models import TimetableChange, UntisCredentials, UntisPeriod
+from perry_assistant.integrations.calendar_client import parse_google_datetime
+from perry_assistant.integrations.untis_calendar_client import UntisCalendarClient, build_event_payload
 from perry_assistant.integrations.untis_client import UntisClient
 from perry_assistant.storage.json_store import read_json, write_json
 
@@ -14,7 +16,9 @@ from perry_assistant.storage.json_store import read_json, write_json
 logger = logging.getLogger(__name__)
 
 # How many days ahead to check for changes
-_LOOKAHEAD_DAYS = 14
+_LOOKAHEAD_DAYS = 10
+_SCHOOL_GAP_MINUTES = 60
+_SCHOOL_SUMMARY = "🏫 School"
 
 
 def _period_key(period: UntisPeriod) -> str:
@@ -29,6 +33,23 @@ def _periods_equal(a: UntisPeriod, b: UntisPeriod) -> bool:
         and a.room == b.room
         and a.start_time == b.start_time
         and a.end_time == b.end_time
+    )
+
+
+def _is_exam_period(period: UntisPeriod) -> bool:
+    text = (period.subject or "").lower()
+    return any(
+        token in text
+        for token in (
+            "klausur",
+            "exam",
+            "prüfung",
+            "pruefung",
+            "test",
+            "schulaufgabe",
+            "arbeit",
+            "sa",
+        )
     )
 
 
@@ -51,11 +72,13 @@ def detect_changes(
                     changes.append(TimetableChange("cancelled", new_p, old_p))
                 elif old_p.code == "cancelled" and new_p.code != "cancelled":
                     changes.append(TimetableChange("restored", new_p, old_p))
+                elif _is_exam_period(new_p) and not _is_exam_period(old_p):
+                    changes.append(TimetableChange("new_exam", new_p, old_p))
                 else:
                     changes.append(TimetableChange("modified", new_p, old_p))
         else:
             # New period appeared
-            if new_p.subject.lower() in {"ex", "exam", "sa", "klausur"}:
+            if _is_exam_period(new_p):
                 changes.append(TimetableChange("new_exam", new_p, None))
             else:
                 changes.append(TimetableChange("modified", new_p, None))
@@ -122,16 +145,19 @@ class UntisService:
 
     Stores credentials and previous timetable state on disk.
     Fetches the current timetable, compares with the stored state, and
-    returns the list of changes.  Google Calendar sync for Miron and Michi
-    is triggered externally via the calendar_client passed in.
+    returns the list of changes. Google Calendar sync for Miron and Michi
+    uses a service account and runs as part of the refresh flow.
     """
 
     def __init__(self, config: AppConfig) -> None:
         self._config = config
         self._users_file = config.untis_users_file
         self._state_file = config.untis_timetable_state_file
+        self._changes_file = config.untis_changes_file
         self._server = config.untis_server
         self._school = config.untis_school
+        self._service_account_file = config.data_dir / "yoursbennybot-986b4f0e0d1b.json"
+        self._calendar_client: UntisCalendarClient | None = None
 
     # ------------------------------------------------------------------
     # Credential management
@@ -184,6 +210,12 @@ class UntisService:
     def _save_state(self, state: dict[str, list[dict]]) -> None:
         write_json(self._state_file, state)
 
+    def _load_changes_state(self) -> dict[str, list[dict]]:
+        return read_json(self._changes_file, {})
+
+    def _save_changes_state(self, state: dict[str, list[dict]]) -> None:
+        write_json(self._changes_file, state)
+
     def load_user_timetable(self, user_id: int) -> list[UntisPeriod]:
         state = self._load_state()
         raw = state.get(str(user_id), [])
@@ -211,6 +243,11 @@ class UntisService:
             username=creds.username,
             password=creds.password,
         )
+
+    def _make_calendar_client(self) -> UntisCalendarClient:
+        if self._calendar_client is None:
+            self._calendar_client = UntisCalendarClient(self._service_account_file)
+        return self._calendar_client
 
     def check_user_for_changes(
         self,
@@ -254,6 +291,7 @@ class UntisService:
 
         client = self._make_client(creds)
         new_periods = client.fetch_timetable(today, end)
+        self._sync_calendar_if_needed(user_id, new_periods, today, end)
 
         state = self._load_state()
         if str(user_id) not in state:
@@ -262,6 +300,8 @@ class UntisService:
 
         old_periods = self.load_user_timetable(user_id)
         changes = detect_changes(old_periods, new_periods)
+        if changes:
+            self._store_detected_changes(user_id, changes, today, end)
         self.save_user_timetable(user_id, new_periods)
         return changes
 
@@ -303,6 +343,81 @@ class UntisService:
         return "\n".join(lines)
 
     # ------------------------------------------------------------------
+    # Change reminders (stored changes)
+    # ------------------------------------------------------------------
+
+    def _store_detected_changes(
+        self,
+        user_id: int,
+        changes: list[TimetableChange],
+        start: dt.date,
+        end: dt.date,
+    ) -> None:
+        state = self._load_changes_state()
+        records = state.get(str(user_id), [])
+        existing: dict[str, dict] = {self._change_key(item): item for item in records}
+        for change in changes:
+            payload = self._change_to_dict(change)
+            existing[self._change_key(payload)] = payload
+        filtered = self._filter_change_records(list(existing.values()), start, end)
+        state[str(user_id)] = filtered
+        self._save_changes_state(state)
+
+    def get_upcoming_changes(
+        self,
+        user_id: int,
+        start: dt.date,
+        end: dt.date,
+    ) -> list[TimetableChange]:
+        state = self._load_changes_state()
+        records = state.get(str(user_id), [])
+        filtered = self._filter_change_records(records, start, end)
+        if filtered != records:
+            state[str(user_id)] = filtered
+            self._save_changes_state(state)
+        return [self._change_from_dict(item) for item in filtered]
+
+    def get_changes_for_date(self, user_id: int, target: dt.date) -> list[TimetableChange]:
+        return self.get_upcoming_changes(user_id, target, target)
+
+    def _filter_change_records(
+        self,
+        records: list[dict],
+        start: dt.date,
+        end: dt.date,
+    ) -> list[dict]:
+        start_str = start.isoformat()
+        end_str = end.isoformat()
+        filtered: list[dict] = []
+        for item in records:
+            period = item.get("period", {})
+            date_str = period.get("date")
+            if not date_str:
+                continue
+            if start_str <= date_str <= end_str:
+                filtered.append(item)
+        return filtered
+
+    def _change_to_dict(self, change: TimetableChange) -> dict:
+        return {
+            "change_type": change.change_type,
+            "period": change.period.to_dict(),
+            "old_period": change.old_period.to_dict() if change.old_period else None,
+            "detected_at": dt.datetime.now(dt.UTC).isoformat(),
+        }
+
+    def _change_from_dict(self, data: dict) -> TimetableChange:
+        period = UntisPeriod.from_dict(data["period"])
+        old_raw = data.get("old_period")
+        old_period = UntisPeriod.from_dict(old_raw) if old_raw else None
+        return TimetableChange(data["change_type"], period, old_period)
+
+    def _change_key(self, data: dict) -> str:
+        change_type = data.get("change_type", "")
+        period = data.get("period", {})
+        return f"{change_type}:{period.get('id')}:{period.get('date')}:{period.get('start_time')}"
+
+    # ------------------------------------------------------------------
     # Google Calendar sync helpers
     # ------------------------------------------------------------------
 
@@ -311,10 +426,10 @@ class UntisService:
         periods: list[UntisPeriod],
         date_str: str,
     ) -> list[dict]:
-        """
-        For Miron: merge consecutive periods (with ≤30-minute gap) into single events.
+        '''
+        For Miron: merge consecutive periods (with <=60-minute gap) into single events.
         Returns a list of dicts with 'start', 'end', 'summary', 'description'.
-        """
+        '''
         day_periods = sorted(
             [p for p in periods if p.date == date_str and p.code != "cancelled"],
             key=lambda p: p.start_time,
@@ -327,14 +442,14 @@ class UntisService:
         block = [day_periods[0]]
         for p in day_periods[1:]:
             prev = block[-1]
-            # Treat as continuous if gap is 0 or at most 2 slots (≈30 min)
+            # Treat as continuous if gap is at most 60 minutes
             gap_minutes = _time_gap_minutes(prev.end_time, p.start_time)
-            if gap_minutes <= 30:
+            if gap_minutes <= _SCHOOL_GAP_MINUTES:
                 block.append(p)
             else:
-                events.append(_make_school_event(block, date_str))
+                events.append(_make_school_event(block, date_str, summary=_SCHOOL_SUMMARY))
                 block = [p]
-        events.append(_make_school_event(block, date_str))
+        events.append(_make_school_event(block, date_str, summary=_SCHOOL_SUMMARY))
         return events
 
     def build_michi_calendar_events(
@@ -342,23 +457,241 @@ class UntisService:
         periods: list[UntisPeriod],
         date_str: str,
     ) -> list[dict]:
-        """
-        For Michi: each period is a separate calendar event.
+        '''
+        For Michi: merge consecutive same-subject periods (double periods).
         Returns list of dicts with 'start', 'end', 'summary', 'description'.
-        """
+        '''
         day_periods = sorted(
             [p for p in periods if p.date == date_str and p.code != "cancelled"],
             key=lambda p: p.start_time,
         )
-        return [
-            {
-                "summary": p.subject or "Schule",
-                "description": f"Lehrer: {p.teacher}\nRaum: {p.room}",
-                "start": f"{date_str}T{p.start_time}:00",
-                "end": f"{date_str}T{p.end_time}:00",
-            }
-            for p in day_periods
-        ]
+        if not day_periods:
+            return []
+
+        events: list[dict] = []
+        block = [day_periods[0]]
+        for p in day_periods[1:]:
+            prev = block[-1]
+            gap_minutes = _time_gap_minutes(prev.end_time, p.start_time)
+            if p.subject == prev.subject and gap_minutes <= _SCHOOL_GAP_MINUTES:
+                block.append(p)
+            else:
+                events.append(_make_school_event(block, date_str, summary=_michi_subject(block)))
+                block = [p]
+        events.append(_make_school_event(block, date_str, summary=_michi_subject(block)))
+        return events
+
+    # ------------------------------------------------------------------
+    # Google Calendar sync (Untis service account)
+    # ------------------------------------------------------------------
+
+    def _sync_calendar_if_needed(
+        self,
+        user_id: int,
+        periods: list[UntisPeriod],
+        start: dt.date,
+        end: dt.date,
+    ) -> None:
+        if user_id == self._config.miron_id:
+            calendar_id = self._config.miron_school_calendar_id
+            mode = "miron"
+        elif user_id == self._config.michi_id:
+            calendar_id = self._config.michi_school_calendar_id
+            mode = "michi"
+        else:
+            return
+
+        if not calendar_id:
+            logger.debug("Untis calendar sync skipped: missing calendar ID for %s", mode)
+            return
+        if not self._service_account_file.exists():
+            logger.warning("Untis calendar sync skipped: service account file missing.")
+            return
+
+        try:
+            client = self._make_calendar_client()
+            start_dt = dt.datetime.combine(start, dt.time(0, 0, tzinfo=BERLIN_TZ))
+            end_dt = dt.datetime.combine(end, dt.time(23, 59, 59, tzinfo=BERLIN_TZ))
+            existing = client.list_events(calendar_id, start_dt, end_dt)
+
+            if mode == "miron":
+                target = self._build_miron_event_specs(periods, start, end)
+                self._reconcile_miron_calendar(client, calendar_id, target, existing)
+            else:
+                target = self._build_michi_event_specs(periods, start, end)
+                self._reconcile_michi_calendar(client, calendar_id, target, existing, periods)
+        except Exception as exc:
+            logger.warning("Untis calendar sync failed for %s: %s", mode, exc)
+
+    def _build_miron_event_specs(
+        self,
+        periods: list[UntisPeriod],
+        start: dt.date,
+        end: dt.date,
+    ) -> list[dict[str, Any]]:
+        specs: list[dict[str, Any]] = []
+        for day in _date_range(start, end):
+            for event in self.build_miron_calendar_events(periods, day.isoformat()):
+                specs.append(_event_spec_from_payload(event))
+        return specs
+
+    def _build_michi_event_specs(
+        self,
+        periods: list[UntisPeriod],
+        start: dt.date,
+        end: dt.date,
+    ) -> list[dict[str, Any]]:
+        specs: list[dict[str, Any]] = []
+        for day in _date_range(start, end):
+            for event in self.build_michi_calendar_events(periods, day.isoformat()):
+                specs.append(_event_spec_from_payload(event))
+        return specs
+
+    def _reconcile_miron_calendar(
+        self,
+        client: UntisCalendarClient,
+        calendar_id: str,
+        target: list[dict[str, Any]],
+        existing: list[dict[str, Any]],
+    ) -> None:
+        existing_map = _build_existing_event_map(existing, summary_filter=_SCHOOL_SUMMARY)
+        target_map = {item["key"]: item for item in target}
+
+        for key, item in target_map.items():
+            if key in existing_map:
+                existing_event = existing_map[key]
+                if existing_event.get("description", "") != item.get("description", ""):
+                    client.update_event(calendar_id, existing_event["id"], {"description": item["description"]})
+            else:
+                payload = build_event_payload(item["summary"], item["description"], item["start_dt"], item["end_dt"])
+                client.create_event(calendar_id, payload)
+
+        for key, existing_event in existing_map.items():
+            if key not in target_map:
+                client.delete_event(calendar_id, existing_event["id"])
+
+    def _reconcile_michi_calendar(
+        self,
+        client: UntisCalendarClient,
+        calendar_id: str,
+        target: list[dict[str, Any]],
+        existing: list[dict[str, Any]],
+        periods: list[UntisPeriod],
+    ) -> None:
+        existing_map = _build_existing_event_map(existing)
+        target_map = {item["key"]: item for item in target}
+        target_subjects = _subjects_by_date(periods)
+        windows = _school_windows_by_date(periods)
+
+        for key, item in target_map.items():
+            if key in existing_map:
+                existing_event = existing_map[key]
+                if existing_event.get("description", "") != item.get("description", ""):
+                    client.update_event(calendar_id, existing_event["id"], {"description": item["description"]})
+            else:
+                payload = build_event_payload(item["summary"], item["description"], item["start_dt"], item["end_dt"])
+                client.create_event(calendar_id, payload)
+
+        for key, existing_event in existing_map.items():
+            if key in target_map:
+                continue
+            summary = existing_event.get("summary", "")
+            start_dt = existing_event.get("start_dt")
+            end_dt = existing_event.get("end_dt")
+            if not summary or not start_dt or not end_dt:
+                continue
+            date_str = start_dt.astimezone(BERLIN_TZ).date().isoformat()
+            window = windows.get(date_str)
+            if not window:
+                continue
+            if summary not in target_subjects.get(date_str, set()):
+                continue
+            if start_dt < window[0] or end_dt > window[1]:
+                continue
+            client.delete_event(calendar_id, existing_event["id"])
+
+
+def _event_spec_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    start_dt = dt.datetime.fromisoformat(payload["start"]).replace(tzinfo=BERLIN_TZ)
+    end_dt = dt.datetime.fromisoformat(payload["end"]).replace(tzinfo=BERLIN_TZ)
+    summary = payload.get("summary", "")
+    description = payload.get("description", "")
+    return {
+        "summary": summary,
+        "description": description,
+        "start_dt": start_dt,
+        "end_dt": end_dt,
+        "key": _event_key(summary, start_dt, end_dt),
+    }
+
+
+def _build_existing_event_map(
+    existing: list[dict[str, Any]],
+    summary_filter: str | None = None,
+) -> dict[str, dict[str, Any]]:
+    mapped: dict[str, dict[str, Any]] = {}
+    for event in existing:
+        summary = str(event.get("summary", "") or "")
+        if summary_filter and summary != summary_filter:
+            continue
+        start_raw = event.get("start", {}).get("dateTime")
+        end_raw = event.get("end", {}).get("dateTime")
+        if not start_raw or not end_raw:
+            continue
+        start_dt = parse_google_datetime(start_raw)
+        end_dt = parse_google_datetime(end_raw)
+        if not start_dt or not end_dt:
+            continue
+        start_dt = start_dt.astimezone(BERLIN_TZ)
+        end_dt = end_dt.astimezone(BERLIN_TZ)
+        key = _event_key(summary, start_dt, end_dt)
+        mapped[key] = {
+            "id": event.get("id"),
+            "summary": summary,
+            "description": event.get("description", ""),
+            "start_dt": start_dt,
+            "end_dt": end_dt,
+        }
+    return mapped
+
+
+def _event_key(summary: str, start_dt: dt.datetime, end_dt: dt.datetime) -> str:
+    return f"{summary}:{start_dt.isoformat()}:{end_dt.isoformat()}"
+
+
+def _subjects_by_date(periods: list[UntisPeriod]) -> dict[str, set[str]]:
+    result: dict[str, set[str]] = {}
+    for p in periods:
+        if p.code == "cancelled":
+            continue
+        result.setdefault(p.date, set()).add(p.subject or "Schule")
+    return result
+
+
+def _school_windows_by_date(periods: list[UntisPeriod]) -> dict[str, tuple[dt.datetime, dt.datetime]]:
+    windows: dict[str, tuple[dt.datetime, dt.datetime]] = {}
+    grouped: dict[str, list[UntisPeriod]] = {}
+    for p in periods:
+        if p.code == "cancelled":
+            continue
+        grouped.setdefault(p.date, []).append(p)
+    for date_str, items in grouped.items():
+        items.sort(key=lambda p: p.start_time)
+        start = dt.datetime.fromisoformat(f"{date_str}T{items[0].start_time}:00").replace(tzinfo=BERLIN_TZ)
+        end = dt.datetime.fromisoformat(f"{date_str}T{items[-1].end_time}:00").replace(tzinfo=BERLIN_TZ)
+        windows[date_str] = (start, end)
+    return windows
+
+
+def _date_range(start: dt.date, end: dt.date) -> list[dt.date]:
+    days = (end - start).days
+    return [start + dt.timedelta(days=offset) for offset in range(days + 1)]
+
+
+def _michi_subject(block: list[UntisPeriod]) -> str:
+    if not block:
+        return "Schule"
+    return block[0].subject or "Schule"
 
 
 def _time_gap_minutes(end_time: str, start_time: str) -> int:
@@ -372,12 +705,12 @@ def _time_gap_minutes(end_time: str, start_time: str) -> int:
         return 999
 
 
-def _make_school_event(block: list[UntisPeriod], date_str: str) -> dict:
+def _make_school_event(block: list[UntisPeriod], date_str: str, summary: str | None = None) -> dict:
     subjects = ", ".join(p.subject for p in block if p.subject)
     start = block[0].start_time
     end = block[-1].end_time
     return {
-        "summary": subjects or "Schule",
+        "summary": summary or subjects or "Schule",
         "description": "\n".join(
             f"{p.start_time}-{p.end_time} {p.subject} ({p.teacher}, {p.room})" for p in block
         ),

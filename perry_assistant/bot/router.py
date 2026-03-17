@@ -117,6 +117,17 @@ def build_application(services: AppServices) -> Application:
         morning_callback=schedule.send_morning_message_job,
     )
 
+    app.job_queue.run_daily(
+        untis_timetable.send_tomorrow_change_reminders_job,
+        time=dt.time(hour=20, minute=30, tzinfo=BERLIN_TZ),
+        name="untis_reminder_evening",
+    )
+    app.job_queue.run_daily(
+        untis_timetable.send_tomorrow_change_reminders_job,
+        time=dt.time(hour=6, minute=30, tzinfo=BERLIN_TZ),
+        name="untis_reminder_morning",
+    )
+
     # Adaptive Untis timetable polling jobs
     # Morning window 06:00–08:00: every 10 minutes
     for minute in range(0, 120, 10):

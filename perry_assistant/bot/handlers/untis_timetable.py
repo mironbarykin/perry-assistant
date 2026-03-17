@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as dt
 import logging
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -109,13 +110,16 @@ async def untis_status(update: Update, context: CallbackContext) -> None:
         return
 
     try:
-        changes = services.untis_service.refresh_user_timetable(user_id)
+        services.untis_service.refresh_user_timetable(user_id)
     except Exception:
         await update.message.reply_text(
             "⚠️ Konnte den Untis-Stundenplan gerade nicht abrufen. Bitte versuche es später erneut."
         )
         return
 
+    today = dt.date.today()
+    end = today + dt.timedelta(days=10)
+    changes = services.untis_service.get_upcoming_changes(user_id, today, end)
     digest = services.untis_service.daily_digest_for_user(user_id)
     if changes:
         change_lines = [format_change_notification(ch) for ch in changes]
@@ -190,6 +194,25 @@ async def check_timetable_changes_job(context: ContextTypes.DEFAULT_TYPE) -> Non
             await _send_with_chunks(context.bot, user_id, text, parse_mode=ParseMode.MARKDOWN)
         except Exception as exc:
             logger.warning("Failed to send Untis notification to %s: %s", user_id, exc)
+
+
+async def send_tomorrow_change_reminders_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Daily reminder at 20:30 / 06:30 for changes happening tomorrow."""
+    services = context.application.bot_data["services"]
+    tomorrow = dt.date.today() + dt.timedelta(days=1)
+
+    for uid_str in services.untis_service.load_all_users():
+        user_id = int(uid_str)
+        changes = services.untis_service.get_changes_for_date(user_id, tomorrow)
+        if not changes:
+            continue
+        header = f"Änderungen für morgen ({tomorrow.strftime('%d.%m')}):"
+        msgs = [header] + [format_change_notification(ch) for ch in changes]
+        text = "\n".join(msgs)
+        try:
+            await _send_with_chunks(context.bot, user_id, text, parse_mode=ParseMode.MARKDOWN)
+        except Exception as exc:
+            logger.warning("Failed to send Untis reminder to %s: %s", user_id, exc)
 
 
 def _split_message(text: str, max_len: int = _MAX_MESSAGE_LEN) -> list[str]:

@@ -38,6 +38,7 @@ def bootstrap_data(config: AppConfig) -> None:
     _ensure_json_file(config.uportal_game_catalog_file, {})
     _ensure_json_file(config.untis_users_file, {})
     _ensure_json_file(config.untis_timetable_state_file, {})
+    _ensure_json_file(config.untis_changes_file, {})
 
     _copy_if_missing(Path("google_calendar_benny_access.json"), config.credentials_file)
     _copy_if_missing(Path("token.pickle"), config.token_pickle_file)
