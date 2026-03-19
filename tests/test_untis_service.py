@@ -283,6 +283,34 @@ class TestUntisServiceRefresh:
         assert len(changes) == 1
         assert changes[0].change_type == "modified"
 
+    def test_refresh_ignores_yesterday_periods(self, app_config, monkeypatch):
+        """Periods from yesterday must not be reported as new cancellations."""
+        app_config.data_dir.mkdir(parents=True, exist_ok=True)
+        svc = UntisService(app_config)
+        creds = UntisCredentials(
+            server="thalia.webuntis.com",
+            school="TestSchool",
+            username="student1",
+            password="secret",
+        )
+        svc.save_credentials(77, creds)
+
+        yesterday = (dt.date.today() - dt.timedelta(days=1)).isoformat()
+        today = dt.date.today().isoformat()
+
+        # Stored timetable contains a period from yesterday (normal, not cancelled)
+        old_yesterday = _period(date=yesterday, subject="SP", pid=10)
+        old_today = _period(date=today, subject="MATH", pid=11)
+        svc.save_user_timetable(77, [old_yesterday, old_today])
+
+        # The fresh fetch only returns today's period (yesterday is gone naturally)
+        new_today = _period(date=today, subject="MATH", pid=11)
+        monkeypatch.setattr(svc, "_make_client", lambda _: _DummyClient([new_today]))
+
+        changes = svc.refresh_user_timetable(77)
+        # Yesterday's period disappearing must NOT produce a cancellation
+        assert all(c.period.date != yesterday for c in changes)
+
 
 # ---------------------------------------------------------------------------
 # UntisService – daily digest
