@@ -27,21 +27,24 @@ class GmailClient:
     def invalidate_service_cache(self) -> None:
         self._service_cache = None
 
+    def _execute_with_retry(self, build_request):
+        try:
+            return build_request(self._service()).execute()
+        except BrokenPipeError:
+            self.invalidate_service_cache()
+            return build_request(self._service()).execute()
+
     def get_basketball_email_ids(self, max_results: int = 10) -> list[dict[str, str]]:
         query = " OR ".join(f"from:{sender}" for sender in self._config.basketball_senders)
-        response = self._service().users().messages().list(
-            userId="me",
-            q=query,
-            maxResults=max_results,
-        ).execute()
+        response = self._execute_with_retry(
+            lambda svc: svc.users().messages().list(userId="me", q=query, maxResults=max_results)
+        )
         return response.get("messages", [])
 
     def get_message_content(self, message_id: str) -> dict[str, str]:
-        message = self._service().users().messages().get(
-            userId="me",
-            id=message_id,
-            format="full",
-        ).execute()
+        message = self._execute_with_retry(
+            lambda svc: svc.users().messages().get(userId="me", id=message_id, format="full")
+        )
         payload = message.get("payload", {})
         headers = {item["name"]: item["value"] for item in payload.get("headers", [])}
         text = _extract_payload_text(payload)
