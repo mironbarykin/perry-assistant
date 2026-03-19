@@ -6,7 +6,7 @@ from telegram import Update
 from telegram.ext import CallbackContext, ContextTypes
 from telegram.constants import ParseMode
 
-from perry_assistant.bot.handlers.common import get_services
+from perry_assistant.bot.handlers.common import get_services, _require_admin_or_parent
 from perry_assistant.bot.keyboards import build_schedule_keyboard
 
 
@@ -17,6 +17,8 @@ def _is_admin_user(update: Update, admin_id: int) -> bool:
 
 async def this_weekend(update: Update, context: CallbackContext) -> None:
     if not update.message:
+        return
+    if not await _require_admin_or_parent(update, context):
         return
 
     services = get_services(context)
@@ -41,6 +43,8 @@ async def this_weekend(update: Update, context: CallbackContext) -> None:
 async def next_weekend(update: Update, context: CallbackContext) -> None:
     if not update.message:
         return
+    if not await _require_admin_or_parent(update, context):
+        return
 
     services = get_services(context)
     is_admin = _is_admin_user(update, services.config.miron_id)
@@ -62,15 +66,20 @@ async def next_weekend(update: Update, context: CallbackContext) -> None:
 
 
 async def other_weekend(update: Update, context: CallbackContext) -> None:
-    if update.message:
-        await update.message.reply_text(
-            "Please specify the date (feature not implemented yet).",
-            reply_markup=build_schedule_keyboard(),
-        )
+    if not update.message:
+        return
+    if not await _require_admin_or_parent(update, context):
+        return
+    await update.message.reply_text(
+        "Please specify the date (feature not implemented yet).",
+        reply_markup=build_schedule_keyboard(),
+    )
 
 
 async def today(update: Update, context: CallbackContext) -> None:
     if not update.message:
+        return
+    if not await _require_admin_or_parent(update, context):
         return
 
     services = get_services(context)
@@ -81,6 +90,8 @@ async def today(update: Update, context: CallbackContext) -> None:
 async def tomorrow(update: Update, context: CallbackContext) -> None:
     if not update.message:
         return
+    if not await _require_admin_or_parent(update, context):
+        return
 
     services = get_services(context)
     is_admin = _is_admin_user(update, services.config.miron_id)
@@ -90,6 +101,8 @@ async def tomorrow(update: Update, context: CallbackContext) -> None:
 async def weekend(update: Update, context: CallbackContext) -> None:
     if not update.message:
         return
+    if not await _require_admin_or_parent(update, context):
+        return
 
     services = get_services(context)
     is_admin = _is_admin_user(update, services.config.miron_id)
@@ -98,6 +111,8 @@ async def weekend(update: Update, context: CallbackContext) -> None:
 
 async def morning(update: Update, context: CallbackContext) -> None:
     if not update.message:
+        return
+    if not await _require_admin_or_parent(update, context):
         return
 
     services = get_services(context)

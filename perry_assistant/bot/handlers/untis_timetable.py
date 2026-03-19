@@ -7,7 +7,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
 from telegram.ext import CallbackContext, ConversationHandler, ContextTypes
 
-from perry_assistant.bot.handlers.common import get_services
+from perry_assistant.bot.handlers.common import get_services, _require_not_parent, _is_parent
 from perry_assistant.domain.models import UntisCredentials
 from perry_assistant.services.untis_service import format_change_notification
 
@@ -24,6 +24,8 @@ _MAX_CHANGE_LINES = 40
 async def untis_setup(update: Update, context: CallbackContext) -> int:
     """Entry point: ask for Untis username."""
     if not update.message:
+        return ConversationHandler.END
+    if not await _require_not_parent(update, context):
         return ConversationHandler.END
     await update.message.reply_text(
         "🏫 *Untis Setup*\n\nBitte gib deinen Untis-Benutzernamen ein:",
@@ -96,6 +98,8 @@ async def untis_status(update: Update, context: CallbackContext) -> None:
     """Show current Untis connection status and today's digest."""
     if not update.message or not update.effective_user:
         return
+    if not await _require_not_parent(update, context):
+        return
     services = get_services(context)
     user_id = update.effective_user.id
 
@@ -141,6 +145,8 @@ async def untis_disconnect(update: Update, context: CallbackContext) -> None:
     """Remove stored Untis credentials for user."""
     if not update.message or not update.effective_user:
         return
+    if not await _require_not_parent(update, context):
+        return
     services = get_services(context)
     user_id = update.effective_user.id
     removed = services.untis_service.delete_credentials(user_id)
@@ -154,6 +160,11 @@ async def untis_setup_callback(update: Update, context: CallbackContext) -> int:
     """Handle inline button 'untis_setup' – enters the ConversationHandler."""
     query = update.callback_query
     if not query:
+        return ConversationHandler.END
+    services = get_services(context)
+    user = update.effective_user
+    if user and _is_parent(user.id, services):
+        await query.answer("This feature is not available.", show_alert=True)
         return ConversationHandler.END
     await query.answer()
     await query.message.reply_text(
