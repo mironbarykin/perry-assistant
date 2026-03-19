@@ -298,7 +298,8 @@ class UntisService:
             self.save_user_timetable(user_id, new_periods)
             return []
 
-        old_periods = self.load_user_timetable(user_id)
+        today_str = today.isoformat()
+        old_periods = [p for p in self.load_user_timetable(user_id) if p.date >= today_str]
         changes = detect_changes(old_periods, new_periods)
         if changes:
             self._store_detected_changes(user_id, changes, today, end)
