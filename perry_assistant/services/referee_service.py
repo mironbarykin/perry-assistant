@@ -360,7 +360,7 @@ class RefereeService:
             await self._notify_admin(context, message, disable_notification=True)
             return
 
-        if assignment_type in {"VERLEGUNG", "AENDERUNG"}:
+        if assignment_type == "VERLEGUNG":
             event_id = self._find_existing_event(assignment)
             available, reason = self._check_availability(assignment)
             icon = ICON_FREE if available else ICON_BUSY
@@ -389,6 +389,33 @@ class RefereeService:
             )
             if reason and not available:
                 message = f"{message}\n{reason}"
+            await self._notify_admin(context, message)
+            return
+
+        if assignment_type == "AENDERUNG":
+            # Referee lineup change for the same game slot — skip the availability
+            # check (which would falsely flag the existing game event as a conflict)
+            # and always update or create the calendar event.
+            event_id = self._find_existing_event(assignment)
+            if event_id:
+                self._calendar.update_referee_event(event_id, assignment, location_for_event)
+                self._update_event_map(None, assignment, event_id)
+                suffix = ""
+            else:
+                event_id = self._calendar.create_referee_event(assignment, location_for_event)
+                if event_id:
+                    self._update_event_map(None, assignment, event_id)
+                    suffix = " (created)"
+                else:
+                    suffix = " (creation failed)"
+            message = self._notification_text(
+                icon=ICON_CLOSE,
+                assignment=assignment,
+                assignment_type=assignment_type,
+                when_where_line=when_where_line,
+                multiple=multiple,
+                header_suffix=suffix,
+            )
             await self._notify_admin(context, message)
             return
 
