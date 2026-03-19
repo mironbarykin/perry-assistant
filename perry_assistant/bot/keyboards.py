@@ -7,13 +7,17 @@ def build_schedule_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup([row1, row2], resize_keyboard=True)
 
 
-def build_main_keyboard(is_admin: bool) -> ReplyKeyboardMarkup:
-    base_row = [KeyboardButton("TODAY"), KeyboardButton("SCHEDULE")]
-    second_row = [KeyboardButton("UNTIS")]
+def build_main_keyboard(is_admin: bool, is_parent: bool = False) -> ReplyKeyboardMarkup:
     if is_admin:
-        second_row.append(KeyboardButton("ABSENCES"))
-        second_row.append(KeyboardButton("REFEREE"))
-    return ReplyKeyboardMarkup([base_row, second_row], resize_keyboard=True)
+        row1 = [KeyboardButton("TODAY"), KeyboardButton("SCHEDULE")]
+        row2 = [KeyboardButton("ABSENCES"), KeyboardButton("REFEREE")]
+        return ReplyKeyboardMarkup([row1, row2], resize_keyboard=True)
+    if is_parent:
+        row1 = [KeyboardButton("TODAY"), KeyboardButton("SCHEDULE")]
+        return ReplyKeyboardMarkup([row1], resize_keyboard=True)
+    # Regular (non-parent, non-admin) users only have Untis access
+    row1 = [KeyboardButton("UNTIS")]
+    return ReplyKeyboardMarkup([row1], resize_keyboard=True)
 
 
 def build_parent_keyboard() -> ReplyKeyboardMarkup:
