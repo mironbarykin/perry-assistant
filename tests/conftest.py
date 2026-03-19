@@ -45,6 +45,6 @@ def app_config(tmp_path: Path) -> AppConfig:
         untis_changes_file=data_dir / "untis_changes_state.json",
         untis_server="thalia.webuntis.com",
         untis_school="test-school",
-        miron_school_calendar_id="miron-cal-id",
-        michi_school_calendar_id="michi-cal-id",
+        miron_school_calendar_id="test-miron-calendar-id",
+        michi_school_calendar_id="test-michi-calendar-id",
     )
