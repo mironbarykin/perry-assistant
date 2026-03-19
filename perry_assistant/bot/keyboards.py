@@ -16,6 +16,13 @@ def build_main_keyboard(is_admin: bool) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup([base_row, second_row], resize_keyboard=True)
 
 
+def build_parent_keyboard() -> ReplyKeyboardMarkup:
+    row1 = [KeyboardButton("TODAY"), KeyboardButton("TOMORROW")]
+    row2 = [KeyboardButton("THIS WEEKEND")]
+    row3 = [KeyboardButton("OTHER DATE")]
+    return ReplyKeyboardMarkup([row1, row2, row3], resize_keyboard=True)
+
+
 def build_untis_setup_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [[InlineKeyboardButton("🏫 Untis einrichten", callback_data="untis_setup")]]

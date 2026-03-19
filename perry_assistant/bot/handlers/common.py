@@ -5,6 +5,7 @@ from telegram.ext import CallbackContext, ConversationHandler
 
 from perry_assistant.bot.keyboards import (
     build_main_keyboard,
+    build_parent_keyboard,
     build_referee_menu_keyboard,
     build_schedule_keyboard,
 )
@@ -37,13 +38,14 @@ async def start(update: Update, context: CallbackContext) -> None:
         command_text = "Commands: /today /tomorrow /weekend"
         if is_admin:
             command_text += " /absence /absences /excused /excuse /published /setweatherloc /weatherloc /games"
+        keyboard = build_main_keyboard(is_admin) if is_admin else build_parent_keyboard()
         await update.message.reply_text(
             (
                 "Welcome to Perry.\n"
                 "Use /settime to configure daily notifications.\n"
                 f"{command_text}"
             ),
-            reply_markup=build_main_keyboard(is_admin),
+            reply_markup=keyboard,
         )
         return
 
@@ -176,6 +178,12 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
         await today(update, context)
         return
 
+    if text == "TOMORROW":
+        from perry_assistant.bot.handlers.schedule import tomorrow
+
+        await tomorrow(update, context)
+        return
+
     if text == "THIS WEEKEND":
         from perry_assistant.bot.handlers.schedule import this_weekend
 
@@ -207,6 +215,11 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
         return
 
     if text == "BACK":
+        if not is_admin:
+            parents = read_json(services.config.parents_file, [])
+            if user and user.id in parents:
+                await update.message.reply_text("OK", reply_markup=build_parent_keyboard())
+                return
         await update.message.reply_text("OK", reply_markup=build_main_keyboard(is_admin))
         return
 

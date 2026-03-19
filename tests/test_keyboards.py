@@ -1,6 +1,7 @@
 from perry_assistant.bot.keyboards import (
     build_absences_menu_keyboard,
     build_main_keyboard,
+    build_parent_keyboard,
     build_referee_menu_keyboard,
     build_schedule_keyboard,
 )
@@ -17,6 +18,16 @@ def test_main_keyboard_admin_contains_referee_button():
     assert "ABSENCES" in all_buttons
     assert "REFEREE" in all_buttons
     assert "UNTIS" in all_buttons
+
+
+def test_parent_keyboard_layout():
+    layout = _button_texts(build_parent_keyboard())
+    assert ["TODAY", "TOMORROW"] in layout
+    assert ["THIS WEEKEND"] in layout
+    assert ["OTHER DATE"] in layout
+    all_buttons = [btn for row in layout for btn in row]
+    assert "UNTIS" not in all_buttons
+    assert "SCHEDULE" not in all_buttons
 
 
 def test_referee_menu_contains_expected_buttons():
