@@ -5,6 +5,7 @@ from telegram.ext import CallbackContext, ConversationHandler
 
 from perry_assistant.bot.keyboards import (
     build_main_keyboard,
+    build_parent_keyboard,
     build_referee_menu_keyboard,
     build_schedule_keyboard,
 )
@@ -68,13 +69,14 @@ async def start(update: Update, context: CallbackContext) -> None:
         command_text = "Commands: /today /tomorrow /weekend"
         if admin:
             command_text += " /absence /absences /excused /excuse /published /setweatherloc /weatherloc /games"
+        keyboard = build_main_keyboard(is_admin=admin, is_parent=parent)
         await update.message.reply_text(
             (
                 "Welcome to Perry.\n"
                 "Use /settime to configure daily notifications.\n"
                 f"{command_text}"
             ),
-            reply_markup=build_main_keyboard(is_admin=admin, is_parent=parent),
+            reply_markup=keyboard,
         )
         return
 
@@ -226,6 +228,12 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
         from perry_assistant.bot.handlers.schedule import today
 
         await today(update, context)
+        return
+
+    if text == "TOMORROW":
+        from perry_assistant.bot.handlers.schedule import tomorrow
+
+        await tomorrow(update, context)
         return
 
     if text == "THIS WEEKEND":

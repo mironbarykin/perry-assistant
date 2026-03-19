@@ -92,6 +92,20 @@ def build_application(services: AppServices) -> Application:
     app.add_handler(CallbackQueryHandler(uportal.ignore_uportal_game, pattern=r"^uio:"))
     app.add_handler(CallbackQueryHandler(game_messages.select_game, pattern=r"^gmsg:"))
 
+    other_date_conv = ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex(r"^OTHER DATE$"), schedule.other_date_start)],
+        states={
+            schedule.OTHER_DATE_STATE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, schedule.other_date_input),
+            ]
+        },
+        fallbacks=[
+            CommandHandler("cancel", schedule.cancel_other_date),
+            CommandHandler("start", common.start),
+        ],
+    )
+    app.add_handler(other_date_conv)
+
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, common.button_handler))
     app.add_error_handler(error_handler)
 
