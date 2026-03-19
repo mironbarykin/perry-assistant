@@ -19,23 +19,54 @@ def get_services(context: CallbackContext) -> AppServices:
     return context.application.bot_data["services"]
 
 
+def _is_admin(user_id: int, services: AppServices) -> bool:
+    return user_id == services.config.miron_id
+
+
+def _is_parent(user_id: int, services: AppServices) -> bool:
+    parents = read_json(services.config.parents_file, [])
+    return user_id in parents
+
+
+def _is_admin_or_parent(user_id: int, services: AppServices) -> bool:
+    return _is_admin(user_id, services) or _is_parent(user_id, services)
+
+
+async def _require_admin_or_parent(update: Update, context: CallbackContext) -> bool:
+    """Return True if user is admin or parent; reply with error and return False otherwise."""
+    if not update.message or not update.effective_user:
+        return False
+    services = get_services(context)
+    if _is_admin_or_parent(update.effective_user.id, services):
+        return True
+    await update.message.reply_text("Access denied.")
+    return False
+
+
+async def _require_not_parent(update: Update, context: CallbackContext) -> bool:
+    """Return True for admin and non-parent users; block parents."""
+    if not update.message or not update.effective_user:
+        return False
+    services = get_services(context)
+    if not _is_parent(update.effective_user.id, services):
+        return True
+    await update.message.reply_text("This feature is not available.")
+    return False
+
+
 async def start(update: Update, context: CallbackContext) -> None:
     services = get_services(context)
     user = update.effective_user
     if not user or not update.message:
         return
 
-    is_admin = user.id == services.config.miron_id
-    is_parent = False
-    if not is_admin:
-        parents = read_json(services.config.parents_file, [])
-        if user.id in parents:
-            is_parent = True
+    admin = _is_admin(user.id, services)
+    parent = _is_parent(user.id, services)
 
     # Admins and pre-registered parents get the full command menu
-    if is_admin or is_parent:
+    if admin or parent:
         command_text = "Commands: /today /tomorrow /weekend"
-        if is_admin:
+        if admin:
             command_text += " /absence /absences /excused /excuse /published /setweatherloc /weatherloc /games"
         await update.message.reply_text(
             (
@@ -43,7 +74,7 @@ async def start(update: Update, context: CallbackContext) -> None:
                 "Use /settime to configure daily notifications.\n"
                 f"{command_text}"
             ),
-            reply_markup=build_main_keyboard(is_admin),
+            reply_markup=build_main_keyboard(is_admin=admin, is_parent=parent),
         )
         return
 
@@ -73,6 +104,8 @@ async def start(update: Update, context: CallbackContext) -> None:
 
 
 async def settime(update: Update, context: CallbackContext) -> int:
+    if not await _require_admin_or_parent(update, context):
+        return ConversationHandler.END
     if update.message:
         await update.message.reply_text("Send time in HH:MM (24h). Example: 08:30")
     return SET_TIME_STATE
@@ -117,8 +150,10 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
     services = get_services(context)
     user = update.effective_user
     text = update.message.text.strip().upper()
-    is_admin = bool(user and user.id == services.config.miron_id)
+    is_admin = bool(user and _is_admin(user.id, services))
+    is_parent = bool(user and _is_parent(user.id, services))
 
+    # Admin-only buttons
     if text in {
         "ABSENCES",
         "EXCUSABLE TODAY",
@@ -130,6 +165,23 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
         "UPORTAL",
     } and not is_admin:
         await update.message.reply_text("Access denied. Admin only.")
+        return
+
+    # Non-untis buttons require admin or parent
+    if text in {
+        "TODAY",
+        "SCHEDULE",
+        "THIS WEEKEND",
+        "NEXT WEEKEND",
+        "OTHER",
+        "BACK",
+    } and not is_admin and not is_parent:
+        await update.message.reply_text("Access denied.")
+        return
+
+    # Untis buttons are not available for parents
+    if text == "UNTIS" and is_parent:
+        await update.message.reply_text("This feature is not available.")
         return
 
     if text == "ABSENCES":
@@ -207,7 +259,7 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
         return
 
     if text == "BACK":
-        await update.message.reply_text("OK", reply_markup=build_main_keyboard(is_admin))
+        await update.message.reply_text("OK", reply_markup=build_main_keyboard(is_admin=is_admin, is_parent=is_parent))
         return
 
     if text == "UNTIS":

@@ -83,7 +83,7 @@ async def published_send(update: Update, context: CallbackContext) -> int:
             await context.bot.send_message(
                 chat_id=recipient_id,
                 text=message_text,
-                reply_markup=build_main_keyboard(is_admin=False),
+                reply_markup=build_main_keyboard(is_admin=False, is_parent=True),
             )
             sent_count += 1
         except Exception:

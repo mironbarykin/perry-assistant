@@ -47,5 +47,4 @@ def app_config(tmp_path: Path) -> AppConfig:
         untis_school="test-school",
         miron_school_calendar_id="test-miron-calendar-id",
         michi_school_calendar_id="test-michi-calendar-id",
-
     )
