@@ -270,7 +270,7 @@ def test_build_drafts_for_selected_game_uses_event_id_and_start(app_config):
     assert any("Gym C" in item.text for item in drafts)
 
 
-def test_referee_draft_shows_full_address_and_shirt_line(app_config):
+def test_referee_draft_shows_street_in_city_and_shirt_line(app_config):
     now = dt.datetime(2026, 3, 3, 9, 0, tzinfo=BERLIN_TZ)
     start = now + dt.timedelta(days=1)
     events = [
@@ -305,8 +305,21 @@ def test_referee_draft_shows_full_address_and_shirt_line(app_config):
     )
 
     assert drafts_with_city
-    assert "Goerresstrasse 6, 40670 Meerbusch" in drafts_with_city[0].text
+    # Address is now formatted as "Street in City" (no postal code)
+    assert "Goerresstrasse 6 in Meerbusch" in drafts_with_city[0].text
     assert "Habe neues Silber und Schwarz und altes Silber dabei!" in drafts_with_city[0].text
     assert drafts_with_placeholder
     assert " CITY " in f" {drafts_with_placeholder[0].text} "
     assert "Habe neues Silber und Schwarz und altes Silber dabei!" in drafts_with_placeholder[0].text
+
+
+def test_referee_street_city_label_various_formats(app_config):
+    svc = GameMessageService(app_config, _FakeCalendarClient())
+    # Standard German address: "Street Number, Postal City"
+    assert svc._referee_street_city_label("Bergheimer Straße 223, 41464 Neuss") == "Bergheimer Straße 223 in Neuss"  # noqa: SLF001
+    # Address with trailing sub-city
+    assert svc._referee_street_city_label("Goerresstrasse 6, 40670 Meerbusch") == "Goerresstrasse 6 in Meerbusch"  # noqa: SLF001
+    # Empty / missing
+    assert svc._referee_street_city_label("") == "CITY"  # noqa: SLF001
+    # Single-part address (no comma) — return raw
+    assert svc._referee_street_city_label("Gymnasium") == "Gymnasium"  # noqa: SLF001

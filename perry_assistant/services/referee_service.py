@@ -11,7 +11,7 @@ from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
 from perry_assistant.config import AppConfig
-from perry_assistant.constants import CANCEL_COLOR_ID
+from perry_assistant.constants import CANCEL_COLOR_ID, ICON_GREEN, ICON_ORANGE, ICON_RED, ICON_UNKNOWN
 from perry_assistant.domain.models import RefereeAssignment
 from perry_assistant.integrations.calendar_client import (
     CalendarClient,
@@ -28,10 +28,10 @@ from perry_assistant.utils import clean_text
 
 logger = logging.getLogger(__name__)
 
-ICON_BUSY = "\U0001F645\u200d\u2642\ufe0f"  # 🙅‍♂️
-ICON_CLOSE = "\U0001F44C"  # 👌
-ICON_FREE = "\U0001F44D"  # 👍
-ICON_UNKNOWN = "\u2754"  # ❔
+# Keep backward-compatible aliases so external callers and tests are not broken.
+ICON_BUSY = ICON_RED
+ICON_CLOSE = ICON_ORANGE
+ICON_FREE = ICON_GREEN
 
 
 MOJIBAKE_MAP = {
@@ -297,8 +297,15 @@ class RefereeService:
                 continue
 
             multiple = len(assignments) > 1
-            for assignment in assignments:
-                await self._handle_assignment(context, assignment, multiple)
+
+            # When all assignments from this email are UMBESETZUNG and there
+            # are two or more, combine them into a single notification.
+            umb_assignments = [a for a in assignments if a.type == "UMBESETZUNG"]
+            if len(umb_assignments) > 1 and len(umb_assignments) == len(assignments):
+                await self._handle_double_umbesetzung(context, umb_assignments)
+            else:
+                for assignment in assignments:
+                    await self._handle_assignment(context, assignment, multiple)
 
             processed_ids.append(msg_id)
             processed_set.add(msg_id)
@@ -445,6 +452,44 @@ class RefereeService:
             multiple=multiple,
         )
         await self._notify_admin(context, message)
+
+    async def _handle_double_umbesetzung(
+        self,
+        context: ContextTypes.DEFAULT_TYPE,
+        assignments: list[RefereeAssignment],
+    ) -> None:
+        """Send a single combined notification for two or more UMBESETZUNG assignments."""
+        _ICON_FALLBACK_PRIORITY = 99
+        results = [self._umbesetzung_availability(a) for a in assignments]
+        icon_priority = {ICON_GREEN: 0, ICON_ORANGE: 1, ICON_RED: 2}
+        best_icon = min(results, key=lambda x: icon_priority.get(x[0], _ICON_FALLBACK_PRIORITY))[0]
+        available = any(avail for _, _, avail in results)
+
+        first = assignments[0]
+        weekday_date = self._weekday_date(first.date)
+        times = ", ".join(a.time or "-" for a in assignments)
+        count = len(assignments)
+        header = html.escape(f"{best_icon} {count}x UMBESETZUNG @ {weekday_date} {times}")
+
+        liga_parts: list[str] = []
+        for a in assignments:
+            part = html.escape(self._liga_short_for_notification(a))
+            if a.spielnummer:
+                part = f"{part} #{html.escape(a.spielnummer)}"
+            liga_parts.append(part)
+        liga_line = " &amp; ".join(liga_parts)
+
+        address_text, maps_url = self._notification_address_with_map(first)
+        if maps_url:
+            url = html.escape(maps_url, quote=True)
+            location_line = f'<a href="{url}">{html.escape(address_text)}</a>'
+        else:
+            location_line = html.escape(address_text)
+
+        teams_line = " &amp; ".join(html.escape(a.teams or "-") for a in assignments)
+
+        message = "\n".join([header, liga_line, location_line, teams_line])
+        await self._notify_admin(context, message, disable_notification=not available)
 
     async def _notify_admin(
         self,

@@ -12,7 +12,15 @@ from telegram.constants import ParseMode
 from telegram.ext import Application, ContextTypes
 
 from perry_assistant.config import AppConfig
-from perry_assistant.constants import BERLIN_TZ, DEFAULT_GAME_DURATION_HOURS
+from perry_assistant.constants import (
+    BERLIN_TZ,
+    DEFAULT_GAME_DURATION_HOURS,
+    ICON_GREEN,
+    ICON_ORANGE,
+    ICON_RED,
+    ICON_STAR,
+    ICON_PLANE,
+)
 from perry_assistant.domain.models import UportalGame
 from perry_assistant.integrations.calendar_client import CalendarClient, parse_google_datetime
 from perry_assistant.integrations.gym_client import GymClient
@@ -20,9 +28,6 @@ from perry_assistant.integrations.uportal_client import UportalClient
 from perry_assistant.storage.json_store import read_json, write_json
 
 
-ICON_GREEN = "\U0001F7E2"
-ICON_ORANGE = "\U0001F7E0"
-ICON_RED = "\U0001F534"
 
 WINDOWS = {
     "night": {"hour": 0},
@@ -668,8 +673,9 @@ class UportalService:
 
     def _row_line(self, item: EvaluatedGame) -> str:
         kind_badge = {"new": "🆕", "updated": "♻️", "old_green": ""}.get(item.kind, "")
-        marker = f"{item.icon}{kind_badge}" if kind_badge else item.icon
         game = item.game
+        distance_badge = self._distance_badge(game.distance_km)
+        marker = f"{item.icon}{distance_badge}"
         distance = int(game.distance_km) if game.distance_km.is_integer() else round(game.distance_km, 1)
         priority_badge = " 🫡" if game.is_umb_offen else ""
         address = self._address_for_hall(game.hall)
@@ -682,10 +688,20 @@ class UportalService:
         league_part = f"{html.escape(game.liga)} #{html.escape(game.number)}"
         if game.detail_url:
             league_part = f'<a href="{html.escape(game.detail_url, quote=True)}">{league_part}</a>'
+        trailing = f"{priority_badge} {kind_badge}".rstrip() if kind_badge else priority_badge
         return (
             f"{marker} @ {html.escape(game.time)} {location_part} ({distance} km) / "
-            f"{league_part} {html.escape(game.home_team)} - {html.escape(game.away_team)}{priority_badge}"
+            f"{league_part} {html.escape(game.home_team)} - {html.escape(game.away_team)}{trailing}"
         )
+
+    @staticmethod
+    def _distance_badge(distance_km: float) -> str:
+        """Return ⭐ for gyms within 20 km, ✈️ for gyms more than 40 km away, else empty."""
+        if distance_km < 20:
+            return ICON_STAR
+        if distance_km > 40:
+            return ICON_PLANE
+        return ""
 
     @staticmethod
     def _ignore_button_label(game: UportalGame) -> str:

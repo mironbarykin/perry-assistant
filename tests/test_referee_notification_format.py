@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from urllib.parse import quote_plus
 
 from perry_assistant.domain.models import RefereeAssignment
+from perry_assistant.constants import ICON_GREEN, ICON_ORANGE, ICON_RED
 from perry_assistant.services.referee_service import ICON_BUSY, ICON_CLOSE, RefereeService
 
 
@@ -81,7 +82,7 @@ def test_referee_notification_format_with_clickable_maps_link(app_config):
 
     expected_url = f"https://maps.google.com/?q={quote_plus('Kopernikusstraße 20, 57413 Finnentrop')}"
     expected = (
-        "🙅‍♂️ ANSETZUNG @ BeL12H #61\n"
+        f"{ICON_RED} ANSETZUNG @ BeL12H #61\n"
         f'Saturday 28.02.2026 16:00 @ <a href="{expected_url}">Kopernikusstraße 20, 57413 Finnentrop (311C511)</a>\n'
         "FC Finnentrop - TuS Fellinghausen 2"
     )
@@ -224,3 +225,49 @@ def test_aenderung_ignores_conflict_no_availability_check(app_config):
     text = bot.messages[0]["text"]
     assert ICON_CLOSE in text
     assert ICON_BUSY not in text
+
+
+def test_unified_icons_are_colored_circles():
+    """ICON_FREE/CLOSE/BUSY aliases now map to the unified 🟢/🟠/🔴 icons."""
+    from perry_assistant.services.referee_service import ICON_FREE
+    assert ICON_FREE == ICON_GREEN
+    assert ICON_CLOSE == ICON_ORANGE
+    assert ICON_BUSY == ICON_RED
+
+
+def test_double_umbesetzung_sends_single_combined_notification(app_config):
+    """Two UMBESETZUNG in one email must produce exactly one combined message."""
+    service = RefereeService(app_config, _FakeGmailClient(), _FakeCalendarClient(), _FakeGymClient())
+    a1 = RefereeAssignment(
+        type="UMBESETZUNG",
+        date="21.03.2026",
+        time="12:00",
+        liga="JOL3U16M",
+        spielnummer="111",
+        teams="SV Haspe 70 - TuS Iserlohn Kangaroos",
+        hall_code="311C511",
+    )
+    a2 = RefereeAssignment(
+        type="UMBESETZUNG",
+        date="21.03.2026",
+        time="14:00",
+        liga="JOL2U14O",
+        spielnummer="222",
+        teams="SV Haspe 70 - Witten Baskets",
+        hall_code="311C511",
+    )
+
+    bot = _FakeBot()
+    context = SimpleNamespace(bot=bot)
+    import asyncio
+    asyncio.run(service._handle_double_umbesetzung(context, [a1, a2]))  # noqa: SLF001
+
+    assert len(bot.messages) == 1
+    text = bot.messages[0]["text"]
+    assert "2x UMBESETZUNG" in text
+    assert "12:00" in text
+    assert "14:00" in text
+    assert "JOL3U16M" in text
+    assert "JOL2U14O" in text
+    assert "SV Haspe 70 - TuS Iserlohn Kangaroos" in text
+    assert "SV Haspe 70 - Witten Baskets" in text
