@@ -3,7 +3,7 @@ from __future__ import annotations
 from telegram import Update
 from telegram.ext import CallbackContext, ConversationHandler
 
-from perry_assistant.bot.keyboards import build_main_keyboard
+from perry_assistant.bot.keyboards import build_main_keyboard, build_parent_keyboard
 from perry_assistant.bot.handlers.common import get_services
 from perry_assistant.storage.json_store import read_json
 
@@ -79,11 +79,15 @@ async def published_send(update: Update, context: CallbackContext) -> int:
     message_text = update.message.text
     sent_count = 0
     for recipient_id in recipient_ids:
+        if target == PUBLISH_TARGET_UNTIS:
+            reply_markup = build_main_keyboard(is_admin=False, is_parent=False)
+        else:
+            reply_markup = build_parent_keyboard()
         try:
             await context.bot.send_message(
                 chat_id=recipient_id,
                 text=message_text,
-                reply_markup=build_main_keyboard(is_admin=False, is_parent=True),
+                reply_markup=reply_markup,
             )
             sent_count += 1
         except Exception:

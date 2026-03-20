@@ -206,11 +206,13 @@ def test_row_line_uses_compact_format_and_kind_badge(app_config):
     )
 
     line = service._row_line(item)  # noqa: SLF001
-    assert "🟢🆕 @ 20:00" in line
+    # distance_km=75 > 40 → ✈️ badge appended to icon; kind badge 🆕 moved to end
+    assert "🟢✈️ @ 20:00" in line
     assert "RE-KLH #93" in line
     assert "Home-93 - Away-93" in line
     assert "👎" not in line
     assert "maps.google.com" in line
+    assert line.endswith("🆕")
 
 
 def test_row_line_includes_clickable_link_when_detail_url_present(app_config):
@@ -287,4 +289,51 @@ def test_dedupe_rows_merges_same_date_hall_number(app_config):
     assert len(deduped) == 1
     assert deduped[0].detail_url == "https://example.test/detail"
     assert deduped[0].is_umb_offen is True
+
+
+def test_row_line_distance_badge_close_gym(app_config):
+    """distance_km < 20 → ⭐ badge after the availability icon."""
+    service = UportalService(app_config, _FakeUportalClient([]), _FakeCalendarClient(), rng=random.Random(0))
+    service._hall_address_cache["109N581"] = "Gym Close, 12345 City"  # noqa: SLF001
+    item = EvaluatedGame(
+        game=_row("10", "10", date="01.03.2026", time="11:00", distance_km=15.0),
+        status="green",
+        icon="🟢",
+        kind="old_green",
+    )
+    line = service._row_line(item)  # noqa: SLF001
+    assert line.startswith("🟢⭐")
+    assert "✈️" not in line
+
+
+def test_row_line_distance_badge_far_gym(app_config):
+    """distance_km > 40 → ✈️ badge after the availability icon."""
+    service = UportalService(app_config, _FakeUportalClient([]), _FakeCalendarClient(), rng=random.Random(0))
+    service._hall_address_cache["109N581"] = "Gym Far, 12345 City"  # noqa: SLF001
+    item = EvaluatedGame(
+        game=_row("20", "20", date="01.03.2026", time="15:00", distance_km=55.0),
+        status="red",
+        icon="🔴",
+        kind="new",
+    )
+    line = service._row_line(item)  # noqa: SLF001
+    assert line.startswith("🔴✈️")
+    assert "⭐" not in line
+    assert line.endswith("🆕")
+
+
+def test_row_line_distance_badge_medium_gym(app_config):
+    """20 ≤ distance_km ≤ 40 → no distance badge."""
+    service = UportalService(app_config, _FakeUportalClient([]), _FakeCalendarClient(), rng=random.Random(0))
+    service._hall_address_cache["109N581"] = "Gym Mid, 12345 City"  # noqa: SLF001
+    item = EvaluatedGame(
+        game=_row("30", "30", date="01.03.2026", time="16:00", distance_km=30.0),
+        status="orange",
+        icon="🟠",
+        kind="old_green",
+    )
+    line = service._row_line(item)  # noqa: SLF001
+    assert line.startswith("🟠 @")
+    assert "⭐" not in line
+    assert "✈️" not in line
 

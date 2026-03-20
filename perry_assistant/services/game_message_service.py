@@ -372,7 +372,7 @@ class GameMessageService:
         closing = closing_tmpl
         day_label = GERMAN_WEEKDAYS[games[0].start.weekday()]
         raw_location = str(games[0].location or "").strip()
-        location = raw_location if raw_location else "CITY"
+        location = self._referee_street_city_label(raw_location) if raw_location else "CITY"
 
         if len(games) == 1:
             game = games[0]
@@ -582,6 +582,29 @@ class GameMessageService:
             if city:
                 return city
         return "CITY"
+
+    @staticmethod
+    def _referee_street_city_label(location: str) -> str:
+        """Format a full address as '{street} in {city}' for referee draft messages.
+
+        E.g. "Bergheimer Straße 223, 41464 Neuss" → "Bergheimer Straße 223 in Neuss".
+        Falls back to the raw location string when the format cannot be parsed.
+        """
+        raw = str(location or "").replace("\n", " ").strip(" ,")
+        if not raw:
+            return "CITY"
+
+        parts = [p.strip() for p in raw.split(",") if p.strip()]
+        if len(parts) >= 2:
+            street = parts[0]
+            city_candidate = parts[-1]
+            # Strip leading postal code, e.g. "41464 Neuss" → "Neuss"
+            city_candidate = re.sub(r"^\d{4,5}\s+", "", city_candidate).strip()
+            if city_candidate and not re.search(r"\d", city_candidate):
+                return f"{street} in {city_candidate}"
+
+        # Fallback: just return the raw location
+        return raw
 
     @staticmethod
     def _is_sent(state: dict, key: str) -> bool:
