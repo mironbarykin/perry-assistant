@@ -10,6 +10,8 @@ from perry_assistant.storage.json_store import write_json
 def test_yesterday_usage_counts_from_stats_logs(app_config):
     app_config.logs_dir.mkdir(parents=True, exist_ok=True)
     write_json(app_config.parents_file, [222])
+    app_config.untis_users_file.parent.mkdir(parents=True, exist_ok=True)
+    write_json(app_config.untis_users_file, {"999": {"username": "u", "password": "p"}})
 
     yesterday = (dt.datetime.now(BERLIN_TZ) - dt.timedelta(days=1)).date().isoformat()
     today = dt.datetime.now(BERLIN_TZ).date().isoformat()
@@ -27,14 +29,42 @@ def test_yesterday_usage_counts_from_stats_logs(app_config):
     )
 
     service = StatsService(app_config)
-    total, parent_total = service.yesterday_usage_counts()
+    total, parent_total, untis_total = service.yesterday_usage_counts()
     assert total == 2
     assert parent_total == 1
+    assert untis_total == 1
 
 
 def test_yesterday_usage_line_format(app_config):
     app_config.logs_dir.mkdir(parents=True, exist_ok=True)
     (app_config.logs_dir / "perry.log").write_text("", encoding="utf-8")
     service = StatsService(app_config)
-    assert service.yesterday_usage_line() == "📊 Yesterday Perry was used 0 times, 0 of those by parents!"
+    line = service.yesterday_usage_line()
+    assert "Perry was used 0 times" in line
+    assert "0 by parents" in line
+    assert "0 for untis" in line
+    assert "inform about 0 school timetable edits" in line
+    assert "sent 0 message" in line
+
+
+def test_yesterday_outgoing_counts(app_config):
+    app_config.logs_dir.mkdir(parents=True, exist_ok=True)
+    yesterday = (dt.datetime.now(BERLIN_TZ) - dt.timedelta(days=1)).date().isoformat()
+    today = dt.datetime.now(BERLIN_TZ).date().isoformat()
+    log_file = app_config.logs_dir / "perry.log"
+    log_file.write_text(
+        "\n".join(
+            [
+                f'{yesterday} 08:00:00,001 STATS perry.stats outgoing={{"endpoint":"sendMessage","chat_id":123}}',
+                f'{yesterday} 08:01:00,001 STATS perry.stats outgoing={{"endpoint":"sendMessage","chat_id":456}}',
+                f'{yesterday} 08:02:00,001 STATS perry.stats outgoing={{"endpoint":"editMessageText","chat_id":123}}',
+                # today's lines should be excluded
+                f'{today} 08:03:00,001 STATS perry.stats outgoing={{"endpoint":"sendMessage","chat_id":123}}',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    service = StatsService(app_config)
+    counts = service.yesterday_outgoing_counts()
+    assert counts == {"sendMessage": 2, "editMessageText": 1}
 

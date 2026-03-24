@@ -52,6 +52,8 @@ def _period_to_model(period, subject_map: dict[int, str], room_map: dict[int, st
         raw_code = None
 
     subst_text = _get_subst_text(period)
+    ls_text_val = _get_ls_text(period)
+    info_val = _get_info(period)
     code = _derive_status_code(raw_code, subst_text)
 
     start_dt: dt.datetime = period.start
@@ -70,6 +72,9 @@ def _period_to_model(period, subject_map: dict[int, str], room_map: dict[int, st
         room=room,
         code=code,
         lesson_number=None,
+        subst_text=subst_text or None,
+        ls_text=ls_text_val or None,
+        info=info_val or None,
     )
 
 
@@ -131,6 +136,24 @@ def _get_subst_text(period) -> str:
     return str(raw) if raw else ""
 
 
+def _get_ls_text(period) -> str:
+    raw = None
+    if hasattr(period, "lstext"):
+        raw = _safe_call(getattr(period, "lstext"))
+    if raw is None:
+        raw = _get_raw_value(period, "lstext")
+    return str(raw) if raw else ""
+
+
+def _get_info(period) -> str:
+    raw = None
+    if hasattr(period, "info"):
+        raw = _safe_call(getattr(period, "info"))
+    if raw is None:
+        raw = _get_raw_value(period, "info")
+    return str(raw) if raw else ""
+
+
 def _derive_status_code(raw_code: str | None, subst_text: str) -> str | None:
     subst_lower = subst_text.lower() if subst_text else ""
     if subst_lower:
@@ -144,7 +167,7 @@ def _derive_status_code(raw_code: str | None, subst_text: str) -> str | None:
         if code == "irregular":
             return "irregular"
         if code == "cancelled":
-            return "irregular"
+            return "cancelled"
 
     return None
 

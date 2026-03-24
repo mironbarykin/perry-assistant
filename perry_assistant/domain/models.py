@@ -89,6 +89,9 @@ class UntisPeriod:
     room: str
     code: str | None   # None, "cancelled", "irregular"
     lesson_number: int | None = None
+    subst_text: str | None = None
+    ls_text: str | None = None
+    info: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -101,6 +104,9 @@ class UntisPeriod:
             "room": self.room,
             "code": self.code,
             "lesson_number": self.lesson_number,
+            "subst_text": self.subst_text,
+            "ls_text": self.ls_text,
+            "info": self.info,
         }
 
     @staticmethod
@@ -115,6 +121,9 @@ class UntisPeriod:
             room=data["room"],
             code=data.get("code"),
             lesson_number=data.get("lesson_number"),
+            subst_text=data.get("subst_text"),
+            ls_text=data.get("ls_text"),
+            info=data.get("info"),
         )
 
 

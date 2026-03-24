@@ -171,10 +171,13 @@ async def send_morning_message_job(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def other_date_start(update: Update, context: CallbackContext) -> int:
-    if update.message:
-        await update.message.reply_text(
-            "Please enter a date (DD.MM.YYYY, DD/MM/YYYY, or YYYY-MM-DD):"
-        )
+    if not update.message:
+        return ConversationHandler.END
+    if not await _require_admin_or_parent(update, context):
+        return ConversationHandler.END
+    await update.message.reply_text(
+        "Please enter a date (DD.MM.YYYY, DD/MM/YYYY, or YYYY-MM-DD):"
+    )
     return OTHER_DATE_STATE
 
 
@@ -189,7 +192,7 @@ async def other_date_input(update: Update, context: CallbackContext) -> int:
     known_buttons = {
         "TODAY", "TOMORROW", "THIS WEEKEND", "OTHER DATE", "BACK",
         "SCHEDULE", "UNTIS", "ABSENCES", "REFEREE", "EMAILS", "UPORTAL",
-        "NEXT WEEKEND", "OTHER", "EXCUSABLE TODAY", "ALL ABSENCES",
+        "NEXT WEEKEND", "EXCUSABLE TODAY", "ALL ABSENCES",
         "EXCUSED ABSENCES", "I AM ABSENT",
     }
     if raw_text.upper() in known_buttons:

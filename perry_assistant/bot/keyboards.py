@@ -3,7 +3,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton,
 
 def build_schedule_keyboard() -> ReplyKeyboardMarkup:
     row1 = [KeyboardButton("THIS WEEKEND"), KeyboardButton("NEXT WEEKEND")]
-    row2 = [KeyboardButton("OTHER"), KeyboardButton("BACK")]
+    row2 = [KeyboardButton("OTHER DATE"), KeyboardButton("BACK")]
     return ReplyKeyboardMarkup([row1, row2], resize_keyboard=True)
 
 
@@ -42,5 +42,5 @@ def build_absences_menu_keyboard() -> ReplyKeyboardMarkup:
 
 def build_referee_menu_keyboard() -> ReplyKeyboardMarkup:
     row1 = [KeyboardButton("EMAILS"), KeyboardButton("UPORTAL")]
-    row2 = [KeyboardButton("BACK")]
+    row2 = [KeyboardButton("GAMES"), KeyboardButton("BACK")]
     return ReplyKeyboardMarkup([row1, row2], resize_keyboard=True)
