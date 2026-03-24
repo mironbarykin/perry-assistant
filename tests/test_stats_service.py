@@ -44,4 +44,27 @@ def test_yesterday_usage_line_format(app_config):
     assert "0 by parents" in line
     assert "0 for untis" in line
     assert "inform about 0 school timetable edits" in line
+    assert "sent 0 message" in line
+
+
+def test_yesterday_outgoing_counts(app_config):
+    app_config.logs_dir.mkdir(parents=True, exist_ok=True)
+    yesterday = (dt.datetime.now(BERLIN_TZ) - dt.timedelta(days=1)).date().isoformat()
+    today = dt.datetime.now(BERLIN_TZ).date().isoformat()
+    log_file = app_config.logs_dir / "perry.log"
+    log_file.write_text(
+        "\n".join(
+            [
+                f'{yesterday} 08:00:00,001 STATS perry.stats outgoing={{"endpoint":"sendMessage","chat_id":123}}',
+                f'{yesterday} 08:01:00,001 STATS perry.stats outgoing={{"endpoint":"sendMessage","chat_id":456}}',
+                f'{yesterday} 08:02:00,001 STATS perry.stats outgoing={{"endpoint":"editMessageText","chat_id":123}}',
+                # today's lines should be excluded
+                f'{today} 08:03:00,001 STATS perry.stats outgoing={{"endpoint":"sendMessage","chat_id":123}}',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    service = StatsService(app_config)
+    counts = service.yesterday_outgoing_counts()
+    assert counts == {"sendMessage": 2, "editMessageText": 1}
 

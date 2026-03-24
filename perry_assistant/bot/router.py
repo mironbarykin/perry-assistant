@@ -21,8 +21,12 @@ from perry_assistant.bot.handlers import untis_timetable
 from perry_assistant.domain.types import AppServices
 
 
+from perry_assistant.bot.logging_bot import PerryBot
+
+
 def build_application(services: AppServices) -> Application:
-    app = ApplicationBuilder().token(services.config.tg_token).build()
+    bot = PerryBot(token=services.config.tg_token)
+    app = ApplicationBuilder().bot(bot).build()
     app.bot_data["services"] = services
 
     app.add_handler(TypeHandler(Update, stats.log_incoming_update, block=False), group=-1)
