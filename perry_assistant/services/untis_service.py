@@ -33,6 +33,9 @@ def _periods_equal(a: UntisPeriod, b: UntisPeriod) -> bool:
         and a.room == b.room
         and a.start_time == b.start_time
         and a.end_time == b.end_time
+        and a.subst_text == b.subst_text
+        and a.ls_text == b.ls_text
+        and a.info == b.info
     )
 
 
@@ -100,24 +103,40 @@ def format_change_notification(change: TimetableChange, locale: str = "de") -> s
 
     period_num = f"{p.lesson_number}. Std" if p.lesson_number else start
 
+    extra = _format_extra_fields(p)
+
     if change.change_type == "cancelled":
-        return f"❌ {period_num} {subj} ist ENTFÄLLT am {date_str}"
+        return f"❌ {period_num} {subj} ENTFÄLLT am {date_str}{extra}"
     if change.change_type == "restored":
-        return f"✅ {period_num} {subj} findet wieder statt am {date_str}"
+        return f"✅ {period_num} {subj} findet wieder statt am {date_str}{extra}"
     if change.change_type == "new_exam":
-        return f"📝 Neue Prüfung: {period_num} {subj} am {date_str}"
+        return f"📝 Neue Prüfung: {period_num} {subj} am {date_str}{extra}"
     if change.change_type == "irregular":
-        return f"⚠️ {period_num} {subj} Vertretung am {date_str}"
+        return f"⚠️ {period_num} {subj} Vertretung am {date_str}{extra}"
     if change.change_type == "modified":
         old = change.old_period
         if old:
             return (
                 f"🔄 {period_num} {subj} geändert am {date_str}"
                 f" (vorher: {old.teacher or '?'}/{old.room or '?'}"
-                f" → jetzt: {p.teacher or '?'}/{p.room or '?'})"
+                f" → jetzt: {p.teacher or '?'}/{p.room or '?'}){extra}"
             )
-        return f"🆕 {period_num} {subj} hinzugefügt am {date_str}"
-    return f"ℹ️ {period_num} {subj} am {date_str}: {change.change_type}"
+        return f"🆕 {period_num} {subj} hinzugefügt am {date_str}{extra}"
+    return f"ℹ️ {period_num} {subj} am {date_str}: {change.change_type}{extra}"
+
+
+def _format_extra_fields(p: UntisPeriod) -> str:
+    """Return a formatted string with extra period fields (subst_text, ls_text, info)."""
+    parts: list[str] = []
+    if p.subst_text:
+        parts.append(f"Vertretungstext: {p.subst_text}")
+    if p.ls_text and "block" not in p.ls_text.lower():
+        parts.append(f"Stundentext: {p.ls_text}")
+    if p.info:
+        parts.append(f"Info: {p.info}")
+    if not parts:
+        return ""
+    return "\n  " + "\n  ".join(parts)
 
 
 def _format_date(date_str: str) -> str:
@@ -333,9 +352,14 @@ class UntisService:
                 color = "🟢"
             ln = p.lesson_number
             prefix = f"{ln}." if ln else p.start_time
-            lines.append(
-                f"  {color} {prefix} {p.subject or '?'} ({p.start_time}-{p.end_time}){status}"
-            )
+            line = f"  {color} {prefix} {p.subject or '?'} ({p.start_time}-{p.end_time}){status}"
+            if p.subst_text:
+                line += f"\n    ↳ {p.subst_text}"
+            if p.ls_text and "block" not in p.ls_text.lower():
+                line += f"\n    ↳ {p.ls_text}"
+            if p.info:
+                line += f"\n    ℹ️ {p.info}"
+            lines.append(line)
 
         cancelled = [p for p in today_periods if p.code == "cancelled"]
         if cancelled:

@@ -165,6 +165,7 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
         "REFEREE",
         "EMAILS",
         "UPORTAL",
+        "GAMES",
     } and not is_admin:
         await update.message.reply_text("Access denied. Admin only.")
         return
@@ -175,7 +176,7 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
         "SCHEDULE",
         "THIS WEEKEND",
         "NEXT WEEKEND",
-        "OTHER",
+        "OTHER DATE",
         "BACK",
     } and not is_admin and not is_parent:
         await update.message.reply_text("Access denied.")
@@ -248,10 +249,10 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
         await next_weekend(update, context)
         return
 
-    if text == "OTHER":
-        from perry_assistant.bot.handlers.schedule import other_weekend
+    if text == "OTHER DATE":
+        from perry_assistant.bot.handlers.schedule import other_date_start
 
-        await other_weekend(update, context)
+        await other_date_start(update, context)
         return
 
     if text == "EMAILS":
@@ -264,6 +265,12 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
         from perry_assistant.bot.handlers.uportal import uportal
 
         await uportal(update, context)
+        return
+
+    if text == "GAMES":
+        from perry_assistant.bot.handlers.game_messages import games
+
+        await games(update, context)
         return
 
     if text == "BACK":

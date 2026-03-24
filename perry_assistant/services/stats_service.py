@@ -13,13 +13,18 @@ class StatsService:
     def __init__(self, config: AppConfig) -> None:
         self._logs_dir = config.logs_dir
         self._parents_file = config.parents_file
+        self._untis_users_file = config.untis_users_file
+        self._untis_changes_file = config.untis_changes_file
 
-    def yesterday_usage_counts(self) -> tuple[int, int]:
+    def yesterday_usage_counts(self) -> tuple[int, int, int]:
+        """Return (total, parent_total, untis_total) for yesterday."""
         target_day = (dt.datetime.now(BERLIN_TZ) - dt.timedelta(days=1)).date()
         target_prefix = target_day.isoformat()
         parent_ids = self._parent_ids()
+        untis_ids = self._untis_user_ids()
         total = 0
         parent_total = 0
+        untis_total = 0
         seen_lines: set[str] = set()
 
         for path in self._log_candidates():
@@ -36,11 +41,29 @@ class StatsService:
                 user_id = self._extract_user_id(line)
                 if user_id is not None and user_id in parent_ids:
                     parent_total += 1
-        return total, parent_total
+                if user_id is not None and user_id in untis_ids:
+                    untis_total += 1
+        return total, parent_total, untis_total
+
+    def timetable_edits_count(self) -> int:
+        """Return the total number of timetable changes currently tracked."""
+        raw = read_json(self._untis_changes_file, {})
+        if not isinstance(raw, dict):
+            return 0
+        total = 0
+        for user_changes in raw.values():
+            if isinstance(user_changes, list):
+                total += len(user_changes)
+        return total
 
     def yesterday_usage_line(self) -> str:
-        total, parent_total = self.yesterday_usage_counts()
-        return f"📊 Yesterday Perry was used {total} times, {parent_total} of those by parents!"
+        total, parent_total, untis_total = self.yesterday_usage_counts()
+        edits = self.timetable_edits_count()
+        return (
+            f"📊 Yesterday Perry was used {total} times, "
+            f"{parent_total} by parents and {untis_total} for untis. "
+            f"It managed to inform about {edits} school timetable edits."
+        )
 
     def _parent_ids(self) -> set[int]:
         raw = read_json(self._parents_file, [])
@@ -50,6 +73,18 @@ class StatsService:
         for item in raw:
             if isinstance(item, int):
                 output.add(item)
+        return output
+
+    def _untis_user_ids(self) -> set[int]:
+        raw = read_json(self._untis_users_file, {})
+        if not isinstance(raw, dict):
+            return set()
+        output: set[int] = set()
+        for key in raw:
+            try:
+                output.add(int(key))
+            except (ValueError, TypeError):
+                pass
         return output
 
     def _log_candidates(self) -> list[Path]:

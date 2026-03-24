@@ -90,12 +90,12 @@ class ScheduleService:
             last_school_end = max(end_candidates) if end_candidates else None
 
             first_target = dt.datetime(today.year, today.month, today.day, 6, 30, tzinfo=BERLIN_TZ)
-            first_weather = self._weather.get_weather(active_coords, first_target)
-            lines.append(f"🏠- {weather_message(first_weather)}")
+            first_weather = self._weather.get_weather(home_coords, first_target)
+            lines.append(f"🏠 {weather_message(first_weather)}")
 
             if last_school_end:
                 second_weather = self._weather.get_weather(school_coords, last_school_end)
-                lines.append(f"🏫- {weather_message(second_weather)}")
+                lines.append(f"🏫 {weather_message(second_weather)}")
 
         gap_warning = check_school_practice_gap(events)
         if gap_warning:

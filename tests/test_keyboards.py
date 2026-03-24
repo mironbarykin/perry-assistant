@@ -51,7 +51,7 @@ def test_parent_keyboard_layout():
 def test_referee_menu_contains_expected_buttons():
     layout = _button_texts(build_referee_menu_keyboard())
     assert ["EMAILS", "UPORTAL"] in layout
-    assert ["BACK"] in layout
+    assert ["GAMES", "BACK"] in layout
 
 
 def test_other_keyboards_still_build():
