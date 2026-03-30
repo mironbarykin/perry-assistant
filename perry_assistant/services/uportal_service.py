@@ -663,7 +663,7 @@ class UportalService:
                 current_len += add_len
                 ignore_id = self._ignore_id(item.game)
                 current_chunk_ignore_ids.append(ignore_id)
-                current_buttons.append((self._ignore_button_label(item.game), f"{IGNORE_GAME_CALLBACK_PREFIX}{ignore_id}"))
+                current_buttons.append((self._ignore_button_label(item), f"{IGNORE_GAME_CALLBACK_PREFIX}{ignore_id}"))
 
             group_id = self._remember_ignore_group(current_chunk_ignore_ids)
             buttons_with_all = [("👎 Ignore all", f"{IGNORE_ALL_CALLBACK_PREFIX}{group_id}"), *current_buttons]
@@ -703,9 +703,12 @@ class UportalService:
             return ICON_PLANE
         return ""
 
-    @staticmethod
-    def _ignore_button_label(game: UportalGame) -> str:
-        return f"👎 {game.time} {game.liga} #{game.number}"
+    def _ignore_button_label(self, item: EvaluatedGame) -> str:
+        game = item.game
+        distance_badge = self._distance_badge(game.distance_km)
+        priority_badge = "🫡" if game.is_umb_offen else ""
+        emoji_part = f"{item.icon}{distance_badge}{priority_badge}".rstrip()
+        return f"👎 {emoji_part} {game.time} {game.liga} #{game.number}".rstrip()
 
     def _remember_ignore_group(self, ignore_ids: list[str]) -> str:
         cleaned = sorted({item for item in ignore_ids if item})

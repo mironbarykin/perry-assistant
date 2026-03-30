@@ -83,3 +83,49 @@ def test_umbesetzung_availability_busy_with_parallel_non_referee_event(app_confi
     icon, _, available = service._umbesetzung_availability(assignment)  # noqa: SLF001
     assert icon == ICON_BUSY
     assert available is False
+
+
+def test_ansetzung_availability_check_available(app_config):
+    assignment = RefereeAssignment(
+        type="ANSETZUNG",
+        date="28.02.2026",
+        time="16:00",
+        hall_code="202B551",
+    )
+    service = RefereeService(app_config, _FakeGmailClient(), _FakeCalendarClient(), _FakeGymClient())
+    available, reason = service._check_availability(assignment)  # noqa: SLF001
+    assert available is True
+    assert reason is None
+
+
+def test_ansetzung_availability_check_not_available(app_config):
+    assignment = RefereeAssignment(
+        type="ANSETZUNG",
+        date="28.02.2026",
+        time="16:00",
+        hall_code="202B551",
+    )
+    conflict_start = dt.datetime(2026, 2, 28, 15, 0, tzinfo=BERLIN_TZ)
+    conflict_end = dt.datetime(2026, 2, 28, 15, 30, tzinfo=BERLIN_TZ)
+    existing_event = {
+        "id": "event-id",
+        "summary": "Another Referee Game",
+        "start": {"dateTime": conflict_start.isoformat()},
+        "end": {"dateTime": conflict_end.isoformat()},
+        "location": "202B551",
+    }
+
+    class _FakeCalendarWithConflict:
+        def get_referee_events_for_day(self, target_date):
+            return [existing_event]
+
+    service = RefereeService(
+        app_config,
+        _FakeGmailClient(),
+        _FakeCalendarWithConflict(),  # type: ignore
+        _FakeGymClient(),
+    )
+    available, reason = service._check_availability(assignment)  # noqa: SLF001
+    assert available is False
+    assert reason is not None
+    assert "Conflict" in reason
