@@ -3,6 +3,7 @@ from zoneinfo import ZoneInfo
 
 BERLIN_TZ = ZoneInfo("Europe/Berlin")
 REFEREE_CALENDAR_NAME = "Basketball"
+COMMUTING_CALENDAR_ID = "3b5afc37b423367bb663eff36a2b69bfa7ccd44d0fa7c507767bec74abee3b5d@group.calendar.google.com"
 CANCEL_COLOR_ID = "11"
 DEFAULT_GAME_DURATION_HOURS = 2
 
@@ -17,3 +18,8 @@ ICON_UNKNOWN = "\u2754"     # ❔ unknown
 ICON_STAR = "\u2B50"   # ⭐ gym within 20 km
 ICON_PLANE = "\u2708\uFE0F"  # ✈️ gym more than 40 km away
 
+# Gym aliases for parent notification messages and travel info
+GYM_ALIASES = {
+    "RSO": "RSO Meerbusch (Goerresstrasse 6)",
+    "SMG": "SMG Meerbusch (Moenkesweg 58)",
+}

@@ -25,7 +25,9 @@ from perry_assistant.domain.models import UportalGame
 from perry_assistant.integrations.calendar_client import CalendarClient, parse_google_datetime
 from perry_assistant.integrations.gym_client import GymClient
 from perry_assistant.integrations.uportal_client import UportalClient
+from perry_assistant.services.travel_service import TravelService
 from perry_assistant.storage.json_store import read_json, write_json
+
 
 
 
@@ -67,11 +69,13 @@ class UportalService:
         config: AppConfig,
         uportal_client: UportalClient,
         calendar_client: CalendarClient,
+        travel_service: TravelService | None = None,
         rng: random.Random | None = None,
     ) -> None:
         self._config = config
         self._uportal_client = uportal_client
         self._calendar = calendar_client
+        self._travel = travel_service
         self._gym = GymClient(config)
         self._rng = rng or random.Random()
         self._daily_event_intervals_cache: dict[str, list[tuple[dt.datetime, dt.datetime]]] | None = None
@@ -432,6 +436,46 @@ class UportalService:
 
                 if kind != "hidden":
                     if kind != "ignored":
+                        # Add travel computation for new games
+                        if kind == "new" and self._travel:
+                            try:
+                                game_start_datetime = dt.datetime.strptime(
+                                    f"{row.date} {row.time}",
+                                    "%d.%m.%Y %H:%M"
+                                ).replace(tzinfo=BERLIN_TZ)
+                                
+                                # Check for same-day games
+                                same_day_games = [
+                                    r for r in rows
+                                    if r.date == row.date and self._identity_key(r) != identity
+                                ]
+                                
+                                if same_day_games:
+                                    # Multiple games on same day - use double game strategy
+                                    # Find the second game
+                                    game_b = min(
+                                        [g for g in same_day_games if self._identity_key(g) != identity],
+                                        key=lambda g: (g.time, g.hall)
+                                    )
+                                    travel_result = self._travel.compute_double_game_strategy(
+                                        game_a=row,
+                                        game_b=game_b,
+                                        home_coords=self._config.home_coords
+                                    )
+                                else:
+                                    # Single game - standard travel computation
+                                    travel_result = self._travel.compute_travel(
+                                        origin_addr=self._config.home_address,
+                                        dest_addr=row.address or row.hall,
+                                        goal_arrival=game_start_datetime,
+                                        role="referee"
+                                    )
+                                
+                                row.travel_info = travel_result
+                            except Exception as e:  # noqa: BLE001
+                                # Log error but don't fail - travel is optional
+                                pass
+                        
                         evaluated.append(EvaluatedGame(game=row, status=status, icon=icon, kind=kind))
                 counts[kind] += 1
 

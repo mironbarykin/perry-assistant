@@ -22,7 +22,7 @@ class _FakeCalendarClient:
     def get_referee_events_for_day(self, target_date):
         return []
 
-    def get_events_for_date(self, target_date):
+    def get_events_for_date(self, target_date, skip_commute_calendar=False):
         return []
 
     def create_referee_event(self, assignment, location):
@@ -32,6 +32,9 @@ class _FakeCalendarClient:
     def update_referee_event(self, event_id, assignment, location):
         self.updated.append((event_id, assignment, location))
         return event_id
+    
+    def create_travel_event(self, summary, description, start_dt, end_dt, calendar_id):
+        return "travel-event-id"
 
 
 class _FakeCalendarClientWithExistingEvent(_FakeCalendarClient):
@@ -52,6 +55,23 @@ class _FakeGymClient:
         return None
 
 
+class _FakeTravelService:
+    def compute_travel(self, origin, dest, arrival_time, role):
+        # Return a mock TravelResult that doesn't create any calendar events
+        from perry_assistant.domain.models import TravelResult
+        return TravelResult(
+            origin_address=origin,
+            dest_address=dest,
+            car_duration_minutes=None,
+            car_leave_by=None,
+            transit_departure=None,
+            transit_arrival=None,
+            transit_legs=[],
+            transit_impossible=True,
+            strategy=None,
+        )
+
+
 class _FakeBot:
     def __init__(self) -> None:
         self.messages: list[dict] = []
@@ -61,7 +81,7 @@ class _FakeBot:
 
 
 def test_referee_notification_format_with_clickable_maps_link(app_config):
-    service = RefereeService(app_config, _FakeGmailClient(), _FakeCalendarClient(), _FakeGymClient())
+    service = RefereeService(app_config, _FakeGmailClient(), _FakeCalendarClient(), _FakeGymClient(), _FakeTravelService())
     assignment = RefereeAssignment(
         type="ANSETZUNG",
         date="28.02.2026",
@@ -91,7 +111,7 @@ def test_referee_notification_format_with_clickable_maps_link(app_config):
 
 
 def test_referee_notification_anderweitig_vergeben_is_quiet(app_config):
-    service = RefereeService(app_config, _FakeGmailClient(), _FakeCalendarClient(), _FakeGymClient())
+    service = RefereeService(app_config, _FakeGmailClient(), _FakeCalendarClient(), _FakeGymClient(), _FakeTravelService())
     assignment = RefereeAssignment(
         type="UMBESETZUNG_VERGEBEN",
         date="21.03.2026",
@@ -121,7 +141,7 @@ def test_referee_notification_anderweitig_vergeben_is_quiet(app_config):
 def test_aenderung_creates_event_when_not_found(app_config):
     """AENDERUNG with no existing event must create one, not just report 'event not found'."""
     calendar = _FakeCalendarClientNoEvent()
-    service = RefereeService(app_config, _FakeGmailClient(), calendar, _FakeGymClient())
+    service = RefereeService(app_config, _FakeGmailClient(), calendar, _FakeGymClient(), _FakeTravelService())
     assignment = RefereeAssignment(
         type="AENDERUNG",
         date="17.03.2026",
@@ -152,7 +172,7 @@ def test_aenderung_creates_event_when_not_found(app_config):
 def test_aenderung_updates_event_when_found(app_config):
     """AENDERUNG with an existing mapped event must update it without an availability check."""
     calendar = _FakeCalendarClientWithExistingEvent()
-    service = RefereeService(app_config, _FakeGmailClient(), calendar, _FakeGymClient())
+    service = RefereeService(app_config, _FakeGmailClient(), calendar, _FakeGymClient(), _FakeTravelService())
 
     # Pre-populate the event map so _find_existing_event returns the id immediately.
     assignment = RefereeAssignment(
@@ -202,7 +222,7 @@ def test_aenderung_ignores_conflict_no_availability_check(app_config):
             ]
 
     calendar = _ConflictingCalendar()
-    service = RefereeService(app_config, _FakeGmailClient(), calendar, _FakeGymClient())
+    service = RefereeService(app_config, _FakeGmailClient(), calendar, _FakeGymClient(), _FakeTravelService())
     assignment = RefereeAssignment(
         type="AENDERUNG",
         date="17.03.2026",
@@ -237,7 +257,7 @@ def test_unified_icons_are_colored_circles():
 
 def test_double_umbesetzung_sends_single_combined_notification(app_config):
     """Two UMBESETZUNG in one email must produce exactly one combined message."""
-    service = RefereeService(app_config, _FakeGmailClient(), _FakeCalendarClient(), _FakeGymClient())
+    service = RefereeService(app_config, _FakeGmailClient(), _FakeCalendarClient(), _FakeGymClient(), _FakeTravelService())
     a1 = RefereeAssignment(
         type="UMBESETZUNG",
         date="21.03.2026",

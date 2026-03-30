@@ -11,7 +11,7 @@ from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
 from perry_assistant.config import AppConfig
-from perry_assistant.constants import CANCEL_COLOR_ID, ICON_GREEN, ICON_ORANGE, ICON_RED, ICON_UNKNOWN
+from perry_assistant.constants import CANCEL_COLOR_ID, COMMUTING_CALENDAR_ID, ICON_GREEN, ICON_ORANGE, ICON_RED, ICON_UNKNOWN
 from perry_assistant.domain.models import RefereeAssignment
 from perry_assistant.integrations.calendar_client import (
     CalendarClient,
@@ -22,6 +22,7 @@ from perry_assistant.integrations.calendar_client import (
 )
 from perry_assistant.integrations.gmail_client import GmailClient
 from perry_assistant.integrations.gym_client import GymClient
+from perry_assistant.services.travel_service import TravelService
 from perry_assistant.storage.json_store import read_json, write_json
 from perry_assistant.utils import clean_text
 
@@ -264,11 +265,13 @@ class RefereeService:
         gmail_client: GmailClient,
         calendar_client: CalendarClient,
         gym_client: GymClient,
+        travel_service: TravelService,
     ) -> None:
         self._config = config
         self._gmail = gmail_client
         self._calendar = calendar_client
         self._gym = gym_client
+        self._travel = travel_service
 
     def refresh_google_clients(self) -> None:
         self._gmail.invalidate_service_cache()
@@ -331,6 +334,8 @@ class RefereeService:
                 event_id = self._calendar.create_referee_event(assignment, location_for_event)
                 if event_id:
                     self._update_event_map(None, assignment, event_id)
+                    # Create travel events after successful calendar event creation
+                    self._create_travel_events(assignment, "referee")
             conflict = self._check_game_conflict(assignment_datetime(assignment))
             icon = self._icon_for_conflict(conflict)
             message = self._notification_text(
@@ -354,6 +359,12 @@ class RefereeService:
                 when_where_line=when_where_line,
                 multiple=multiple,
             )
+            
+            # Append travel information if available
+            travel_msg = self._get_travel_message(assignment, "referee")
+            if travel_msg:
+                message = f"{message}\n\n{travel_msg}"
+            
             await self._notify_admin(context, message, disable_notification=not available)
             return
 
@@ -416,6 +427,7 @@ class RefereeService:
                 event_id = self._calendar.create_referee_event(assignment, location_for_event)
                 if event_id:
                     self._update_event_map(None, assignment, event_id)
+                    self._create_travel_events(assignment, "referee")
                     suffix = " (created)"
                 else:
                     suffix = " (creation failed)"
@@ -744,7 +756,8 @@ class RefereeService:
 
         for day_offset in (-1, 0, 1):
             day = target_start + dt.timedelta(days=day_offset)
-            for event in self._calendar.get_events_for_date(day):
+            # Skip commute calendar when checking availability
+            for event in self._calendar.get_events_for_date(day, skip_commute_calendar=True):
                 if event.is_all_day or not event.start:
                     continue
                 event_end = event.end or (event.start + dt.timedelta(hours=2))
@@ -768,7 +781,8 @@ class RefereeService:
     def _check_game_conflict(self, new_game_dt: dt.datetime | None) -> str:
         if not new_game_dt:
             return "UNKNOWN"
-        events = self._calendar.get_events_for_date(new_game_dt)
+        # Skip commute calendar when checking for game conflicts
+        events = self._calendar.get_events_for_date(new_game_dt, skip_commute_calendar=True)
         times = [
             event.start
             for event in events
@@ -783,6 +797,106 @@ class RefereeService:
         if min_diff < 3:
             return "WARN"
         return "OK"
+
+    def _get_travel_message(self, assignment: RefereeAssignment, role: str) -> str | None:
+        """Get formatted travel message for an assignment without creating calendar events."""
+        # Skip if home address is not configured
+        if not self._config.home_address or not self._config.home_address.strip():
+            return None
+        
+        # Skip if destination address is not available
+        dest_addr = assignment.address or assignment.location
+        if not dest_addr or not dest_addr.strip():
+            return None
+        
+        # Get the game datetime
+        game_dt = assignment_datetime(assignment)
+        if not game_dt:
+            return None
+        
+        try:
+            # Compute travel options
+            result = self._travel.compute_travel(
+                self._config.home_address,
+                dest_addr,
+                game_dt,
+                role
+            )
+            
+            # Return formatted travel message
+            return TravelService.format_travel_message(result)
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _create_travel_events(self, assignment: RefereeAssignment, role: str) -> None:
+        """Create travel events for a referee/coach assignment if travel is computable."""
+        # Skip if home address is not configured
+        if not self._config.home_address or not self._config.home_address.strip():
+            return
+        
+        # Skip if destination address is not available
+        dest_addr = assignment.address or assignment.location
+        if not dest_addr or not dest_addr.strip():
+            return
+        
+        # Get the game datetime
+        game_dt = assignment_datetime(assignment)
+        if not game_dt:
+            return
+        
+        try:
+            # Compute travel options
+            result = self._travel.compute_travel(
+                self._config.home_address,
+                dest_addr,
+                game_dt,
+                role
+            )
+            
+            # Create calendar events based on available travel options
+            if result.car_leave_by:
+                # Create car event
+                car_event_start = result.car_leave_by
+                car_event_end = car_event_start + dt.timedelta(minutes=result.car_duration_minutes or 30)
+                
+                gym_name = assignment.location or assignment.hall_code or "Sporthalle"
+                car_summary = f"🚗 Home → {gym_name}"
+                arrival_time = result.car_leave_by + dt.timedelta(minutes=result.car_duration_minutes or 0)
+                maps_url = f"https://www.google.com/maps/dir/?api=1&destination={quote_plus(dest_addr)}&travelmode=driving"
+                car_desc = f"Ankunft ca. {arrival_time.strftime('%H:%M')}\n{maps_url}"
+                
+                self._calendar.create_travel_event(
+                    summary=car_summary,
+                    description=car_desc,
+                    start_dt=car_event_start,
+                    end_dt=car_event_end,
+                    calendar_id=COMMUTING_CALENDAR_ID,
+                )
+            
+            if result.transit_departure and not result.transit_impossible:
+                # Create transit event
+                transit_event_end = result.transit_arrival or result.transit_departure + dt.timedelta(minutes=60)
+                
+                gym_name = assignment.location or assignment.hall_code or "Sporthalle"
+                legs_str = " → ".join(result.transit_legs) if result.transit_legs else "Transit"
+                transit_summary = f"🚆 {legs_str} → {gym_name}"
+                
+                maps_url = f"https://www.google.com/maps/dir/?api=1&destination={quote_plus(dest_addr)}&travelmode=transit"
+                transit_desc = (
+                    f"Abfahrt: {result.transit_departure.strftime('%H:%M')}\n"
+                    f"Ankunft: {transit_event_end.strftime('%H:%M')}\n"
+                    f"{maps_url}"
+                )
+                
+                self._calendar.create_travel_event(
+                    summary=transit_summary,
+                    description=transit_desc,
+                    start_dt=result.transit_departure,
+                    end_dt=transit_event_end,
+                    calendar_id=COMMUTING_CALENDAR_ID,
+                )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"Failed to create travel events for assignment: {e}")
 
 
 def assignment_to_dict(assignment: RefereeAssignment) -> dict:

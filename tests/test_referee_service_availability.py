@@ -25,8 +25,28 @@ class _FakeCalendarClient:
     def get_referee_events_for_day(self, target_date) -> list[dict]:
         return []
 
-    def get_events_for_date(self, target_date):
+    def get_events_for_date(self, target_date, skip_commute_calendar=False):
         return self._day_events
+    
+    def create_travel_event(self, summary, description, start_dt, end_dt, calendar_id):
+        return "travel-event-id"
+
+
+class _FakeTravelService:
+    def compute_travel(self, origin, dest, arrival_time, role):
+        # Return a mock TravelResult that doesn't create any calendar events
+        from perry_assistant.domain.models import TravelResult
+        return TravelResult(
+            origin_address=origin,
+            dest_address=dest,
+            car_duration_minutes=None,
+            car_leave_by=None,
+            transit_departure=None,
+            transit_arrival=None,
+            transit_legs=[],
+            transit_impossible=True,
+            strategy=None,
+        )
 
 
 def _referee_event(start: dt.datetime, end: dt.datetime) -> dict:
@@ -46,7 +66,7 @@ def test_umbesetzung_availability_busy_under_one_hour(app_config):
     assignment = RefereeAssignment(type="UMBESETZUNG", date="28.02.2026", time="16:00")
     candidate_start = dt.datetime(2026, 2, 28, 16, 0, tzinfo=BERLIN_TZ)
     existing = _referee_event(candidate_start - dt.timedelta(hours=2), candidate_start - dt.timedelta(minutes=30))
-    service = RefereeService(app_config, _FakeGmailClient(), _FakeCalendarClient([existing]), _FakeGymClient())
+    service = RefereeService(app_config, _FakeGmailClient(), _FakeCalendarClient([existing]), _FakeGymClient(), _FakeTravelService())
     icon, _, available = service._umbesetzung_availability(assignment)  # noqa: SLF001
     assert icon == ICON_BUSY
     assert available is False
@@ -56,7 +76,7 @@ def test_umbesetzung_availability_close_between_one_and_two_hours(app_config):
     assignment = RefereeAssignment(type="UMBESETZUNG", date="28.02.2026", time="16:00")
     candidate_start = dt.datetime(2026, 2, 28, 16, 0, tzinfo=BERLIN_TZ)
     existing = _referee_event(candidate_start - dt.timedelta(hours=3), candidate_start - dt.timedelta(hours=1, minutes=30))
-    service = RefereeService(app_config, _FakeGmailClient(), _FakeCalendarClient([existing]), _FakeGymClient())
+    service = RefereeService(app_config, _FakeGmailClient(), _FakeCalendarClient([existing]), _FakeGymClient(), _FakeTravelService())
     icon, _, available = service._umbesetzung_availability(assignment)  # noqa: SLF001
     assert icon == ICON_CLOSE
     assert available is True
@@ -66,7 +86,7 @@ def test_umbesetzung_availability_free_two_hours_or_more(app_config):
     assignment = RefereeAssignment(type="UMBESETZUNG", date="28.02.2026", time="16:00")
     candidate_start = dt.datetime(2026, 2, 28, 16, 0, tzinfo=BERLIN_TZ)
     existing = _referee_event(candidate_start - dt.timedelta(hours=4), candidate_start - dt.timedelta(hours=2))
-    service = RefereeService(app_config, _FakeGmailClient(), _FakeCalendarClient([existing]), _FakeGymClient())
+    service = RefereeService(app_config, _FakeGmailClient(), _FakeCalendarClient([existing]), _FakeGymClient(), _FakeTravelService())
     icon, _, available = service._umbesetzung_availability(assignment)  # noqa: SLF001
     assert icon == ICON_FREE
     assert available is True
@@ -78,7 +98,7 @@ def test_umbesetzung_availability_busy_with_parallel_non_referee_event(app_confi
     end = dt.datetime(2026, 2, 22, 16, 0, tzinfo=BERLIN_TZ)
     day_event = _timed_event(start, end, "Coach Game HOME (U12-2)")
     calendar = _FakeCalendarClient(referee_events=[], day_events=[day_event])
-    service = RefereeService(app_config, _FakeGmailClient(), calendar, _FakeGymClient())
+    service = RefereeService(app_config, _FakeGmailClient(), calendar, _FakeGymClient(), _FakeTravelService())
 
     icon, _, available = service._umbesetzung_availability(assignment)  # noqa: SLF001
     assert icon == ICON_BUSY
@@ -92,7 +112,7 @@ def test_ansetzung_availability_check_available(app_config):
         time="16:00",
         hall_code="202B551",
     )
-    service = RefereeService(app_config, _FakeGmailClient(), _FakeCalendarClient(), _FakeGymClient())
+    service = RefereeService(app_config, _FakeGmailClient(), _FakeCalendarClient(), _FakeGymClient(), _FakeTravelService())
     available, reason = service._check_availability(assignment)  # noqa: SLF001
     assert available is True
     assert reason is None
@@ -124,6 +144,7 @@ def test_ansetzung_availability_check_not_available(app_config):
         _FakeGmailClient(),
         _FakeCalendarWithConflict(),  # type: ignore
         _FakeGymClient(),
+        _FakeTravelService(),
     )
     available, reason = service._check_availability(assignment)  # noqa: SLF001
     assert available is False

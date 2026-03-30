@@ -81,14 +81,20 @@ class CalendarClient:
             return selected
         return "primary"
 
-    def get_events_for_date(self, target_date: dt.datetime) -> list[EventView]:
+    def get_events_for_date(self, target_date: dt.datetime, skip_commute_calendar: bool = False) -> list[EventView]:
         service = self._service()
         start, end = utc_day_bounds(target_date)
 
         events_all: list[EventView] = []
         for calendar in self.get_all_calendars():
-            cal_symbol = (calendar.get("summary", "?") or "?")[0]
-            is_basketball = "basketball" in calendar.get("summary", "").lower()
+            summary = calendar.get("summary", "?") or "?"
+            
+            # Skip commute-related calendars if requested (used for availability checking)
+            if skip_commute_calendar and "commute" in summary.lower():
+                continue
+            
+            cal_symbol = summary[0]
+            is_basketball = "basketball" in summary.lower()
             events = service.events().list(
                 calendarId=calendar["id"],
                 timeMin=start,
@@ -231,6 +237,41 @@ class CalendarClient:
         patch = {"summary": summary, "colorId": cancel_color_id}
         updated = service.events().patch(calendarId=calendar_id, eventId=event_id, body=patch).execute()
         return updated.get("id")
+
+    def create_travel_event(
+        self,
+        summary: str,
+        description: str,
+        start_dt: dt.datetime,
+        end_dt: dt.datetime,
+        calendar_id: str,
+    ) -> str | None:
+        """
+        Create a travel event in the specified calendar.
+        
+        Args:
+            summary: Event title (e.g., "🚗 Home → Sporthalle Jüchen")
+            description: Event description (e.g., "Arrive by HH:MM\nhttps://...")
+            start_dt: Event start time
+            end_dt: Event end time
+            calendar_id: Calendar ID to create the event in
+            
+        Returns:
+            Event ID or None if creation fails
+        """
+        service = self._service()
+        event = {
+            "summary": summary,
+            "description": description,
+            "start": {"dateTime": start_dt.isoformat(), "timeZone": "Europe/Berlin"},
+            "end": {"dateTime": end_dt.isoformat(), "timeZone": "Europe/Berlin"},
+        }
+        try:
+            created = service.events().insert(calendarId=calendar_id, body=event).execute()
+            return created.get("id")
+        except Exception as e:
+            logger.error(f"Failed to create travel event: {e}")
+            return None
 
 
 def _location_link_parts(location: str) -> tuple[str, str]:

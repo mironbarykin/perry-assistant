@@ -8,8 +8,9 @@ from urllib.parse import quote_plus
 from telegram.ext import ContextTypes
 
 from perry_assistant.config import AppConfig
-from perry_assistant.constants import BERLIN_TZ
+from perry_assistant.constants import BERLIN_TZ, COMMUTING_CALENDAR_ID
 from perry_assistant.integrations.calendar_client import CalendarClient, parse_google_datetime
+from perry_assistant.services.travel_service import TravelService
 from perry_assistant.storage.json_store import read_json, write_json
 from perry_assistant.utils import clean_text
 
@@ -55,9 +56,10 @@ class DraftMessage:
 
 
 class GameMessageService:
-    def __init__(self, config: AppConfig, calendar_client: CalendarClient) -> None:
+    def __init__(self, config: AppConfig, calendar_client: CalendarClient, travel_service: TravelService | None = None) -> None:
         self._config = config
         self._calendar = calendar_client
+        self._travel = travel_service
         self._rules_file = config.game_message_rules_file
         self._state_file = config.game_message_state_file
 
@@ -417,6 +419,32 @@ class GameMessageService:
                 else ""
             )
 
+            # Compute travel info if available
+            travel_text = ""
+            if self._travel and event.location:
+                try:
+                    travel_result = self._travel.compute_travel(
+                        origin_addr=self._config.home_address,
+                        dest_addr=event.location,
+                        goal_arrival=event.start,
+                        role="coach"
+                    )
+                    
+                    if travel_result.car_leave_by:
+                        car_leave_time = travel_result.car_leave_by.strftime("%H:%M")
+                        travel_text += f"\n🚗 Los: {car_leave_time}"
+                    
+                    if travel_result.transit_departure:
+                        transit_dep = travel_result.transit_departure.strftime("%H:%M")
+                        if travel_result.transit_legs:
+                            legs_str = " → ".join(travel_result.transit_legs[:2])
+                            travel_text += f"\n🚆 {transit_dep}: {legs_str}"
+                        else:
+                            travel_text += f"\n🚆 {transit_dep}"
+                except Exception:  # noqa: BLE001
+                    # Travel computation failed - continue without it
+                    pass
+
             if bool(rule.get("send_parents", True)):
                 greeting = self._pick(
                     rules.get("coach", {}).get("greetings_parents", []),
@@ -426,7 +454,7 @@ class GameMessageService:
                 text = (
                     f"{greeting} Am {day} ({date_text}) um {time_text} spielen wir {home_guest_text} "
                     f"gegen {opponent}. Wir treffen uns: {meet_text} vor dem Spiel, hier: {location_url}. "
-                    f"Trikots bringt {jersey['bring']} und nimmt {jersey['wash']} mit, zum Waschen! VG Miron ;){warn}"
+                    f"Trikots bringt {jersey['bring']} und nimmt {jersey['wash']} mit, zum Waschen! VG Miron ;){warn}{travel_text}"
                 )
                 key = f"coach:parents:{event.event_id}:{event.game_date.isoformat()}"
                 drafts.append(DraftMessage(key=key, text=text, game_date=event.game_date))
@@ -440,7 +468,7 @@ class GameMessageService:
                 text = (
                     f"{greeting} Am {day} ({date_text}) um {time_text} spielen wir {home_guest_text} "
                     f"gegen {opponent}. Treffpunkt: {meet_text} vor Tipoff, hier: {location_url}. "
-                    f"Trikots bringt {jersey['bring']} und nimmt {jersey['wash']} mit, zum Waschen! VG Miron ;){warn}"
+                    f"Trikots bringt {jersey['bring']} und nimmt {jersey['wash']} mit, zum Waschen! VG Miron ;){warn}{travel_text}"
                 )
                 key = f"coach:players:{event.event_id}:{event.game_date.isoformat()}"
                 drafts.append(DraftMessage(key=key, text=text, game_date=event.game_date))

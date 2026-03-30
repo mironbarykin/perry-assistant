@@ -15,6 +15,7 @@ from perry_assistant.services.notification_service import NotificationService
 from perry_assistant.services.referee_service import RefereeService
 from perry_assistant.services.schedule_service import ScheduleService
 from perry_assistant.services.stats_service import StatsService
+from perry_assistant.services.travel_service import TravelService
 from perry_assistant.services.untis_service import UntisService
 from perry_assistant.services.uportal_service import UportalService
 from perry_assistant.services.weather_archive_service import WeatherArchiveService
@@ -33,12 +34,14 @@ def build_services() -> AppServices:
     weather_client = WeatherClient(config)
     uportal_client = UportalClient(config)
 
+    travel_service = TravelService(config.address_cache_file, config.ors_api_key)
+
     schedule_service = ScheduleService(calendar_client, weather_client)
     notification_service = NotificationService(config)
-    referee_service = RefereeService(config, gmail_client, calendar_client, gym_client)
+    referee_service = RefereeService(config, gmail_client, calendar_client, gym_client, travel_service)
     absence_service = AbsenceService(config)
-    game_message_service = GameMessageService(config, calendar_client)
-    uportal_service = UportalService(config, uportal_client, calendar_client)
+    game_message_service = GameMessageService(config, calendar_client, travel_service)
+    uportal_service = UportalService(config, uportal_client, calendar_client, travel_service)
     untis_service = UntisService(config)
     weather_location_service = WeatherLocationService(config)
     weather_archive_service = WeatherArchiveService(config, weather_client, weather_location_service)

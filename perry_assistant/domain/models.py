@@ -44,6 +44,7 @@ class RefereeAssignment:
     new_location: str | None = None
     new_hall_code: str | None = None
     new_address: str | None = None
+    travel_info: TravelResult | None = None
 
 
 @dataclass(slots=True)
@@ -68,6 +69,8 @@ class UportalGame:
     distance_km: float
     detail_url: str = ""
     is_umb_offen: bool = False
+    address: str | None = None
+    travel_info: TravelResult | None = None
 
 
 @dataclass(slots=True)
@@ -132,3 +135,17 @@ class TimetableChange:
     change_type: str   # "cancelled", "restored", "irregular", "new_exam", "modified"
     period: UntisPeriod
     old_period: UntisPeriod | None = None
+
+
+@dataclass(slots=True)
+class TravelResult:
+    origin_address: str
+    dest_address: str
+    car_duration_minutes: int | None
+    car_leave_by: dt.datetime | None
+    transit_departure: dt.datetime | None
+    transit_arrival: dt.datetime | None
+    transit_legs: list[str]
+    transit_impossible: bool
+    strategy: str | None = None  # "home_visit" or "direct" for double-game days
+

@@ -79,6 +79,7 @@ def cfg(tmp_path: Path) -> AppConfig:
         processed_emails_file=data_dir / "processed_emails.json",
         referee_events_file=data_dir / "referee_events.json",
         gyms_cache_file=data_dir / "gyms_cache.json",
+        address_cache_file=data_dir / "address_cache.json",
         school_absence_file=data_dir / "school_absences.json",
         school_timetable_file=data_dir / "school_timetable.json",
         weather_location_file=data_dir / "weather_location.json",
@@ -103,6 +104,8 @@ def cfg(tmp_path: Path) -> AppConfig:
         untis_school="test-school",
         miron_school_calendar_id="cal-miron",
         michi_school_calendar_id="cal-michi",
+        home_address="Test Address 123, Test City",
+        ors_api_key="test-ors-api-key",
     )
 
 

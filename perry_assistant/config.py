@@ -24,6 +24,7 @@ class AppConfig:
     processed_emails_file: Path
     referee_events_file: Path
     gyms_cache_file: Path
+    address_cache_file: Path
     school_absence_file: Path
     school_timetable_file: Path
     weather_location_file: Path
@@ -48,6 +49,10 @@ class AppConfig:
     untis_school: str
     miron_school_calendar_id: str
     michi_school_calendar_id: str
+    home_address: str
+    ors_api_key: str | None
+    google_api_key: str | None
+
 
 
 def _to_path(value: str | None, default: str) -> Path:
@@ -83,6 +88,7 @@ def load_config() -> AppConfig:
         processed_emails_file=data_dir / "processed_emails.json",
         referee_events_file=data_dir / "referee_events.json",
         gyms_cache_file=data_dir / "gyms_cache.json",
+        address_cache_file=data_dir / "address_cache.json",
         school_absence_file=data_dir / "school_absences.json",
         school_timetable_file=data_dir / "school_timetable.json",
         weather_location_file=data_dir / "weather_location.json",
@@ -115,6 +121,9 @@ def load_config() -> AppConfig:
         untis_changes_file=data_dir / "untis_changes_state.json",
         untis_server=os.getenv("UNTIS_SERVER", "theodor-fliedner-gymnasium.webuntis.com"),
         untis_school=os.getenv("UNTIS_SCHOOL", "theodor-fliedner-gymnasium"),
-        miron_school_calendar_id=os.getenv("MIRON_SCHOOL_CALENDAR_ID", "d7797cf00146740f692501cf7b0082ffc0e434430aa665e58c73ab89d59fe88a"),
-        michi_school_calendar_id=os.getenv("MICHI_SCHOOL_CALENDAR_ID", "michael.kaushanski"),
+        miron_school_calendar_id=os.getenv("MIRON_SCHOOL_CALENDAR_ID", "d7797cf00146740f692501cf7b0082ffc0e434430aa665e58c73ab89d59fe88a@group.calendar.google.com"),
+        michi_school_calendar_id=os.getenv("MICHI_SCHOOL_CALENDAR_ID", "michael.kaushanski@gmail.com"),
+        home_address=os.getenv("HOME_ADDRESS", "Moerser Straße 127, 40667 Meerbusch"),
+        ors_api_key=os.getenv("ORS_API_KEY", None),
+        google_api_key=os.getenv("GOOGLE_API_KEY", None),
     )
