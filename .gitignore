@@ -2,6 +2,7 @@
 data/*
 __pycache__/
 .pytest_cache/
+.vscode/
 
 scripts
 !scripts/deploy_remote.sh
