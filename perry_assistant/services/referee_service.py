@@ -326,9 +326,11 @@ class RefereeService:
         when_where_line = self._when_where_line(assignment)
 
         if assignment_type == "ANSETZUNG":
-            event_id = self._calendar.create_referee_event(assignment, location_for_event)
-            if event_id:
-                self._update_event_map(None, assignment, event_id)
+            available, reason = self._check_availability(assignment)
+            if available:
+                event_id = self._calendar.create_referee_event(assignment, location_for_event)
+                if event_id:
+                    self._update_event_map(None, assignment, event_id)
             conflict = self._check_game_conflict(assignment_datetime(assignment))
             icon = self._icon_for_conflict(conflict)
             message = self._notification_text(
@@ -338,6 +340,8 @@ class RefereeService:
                 when_where_line=when_where_line,
                 multiple=multiple,
             )
+            if reason and not available:
+                message = f"{message}\n{reason}"
             await self._notify_admin(context, message, disable_notification=conflict == "BLOCK")
             return
 
