@@ -300,6 +300,8 @@ class UntisService:
 
         If this is the first successful sync (no stored state yet), the
         timetable is saved as baseline and no changes are returned.
+        If the old timetable is empty, return no changes and replace 
+        the old timetable with the new one.
         """
         creds = self.get_credentials(user_id)
         if not creds:
@@ -319,6 +321,12 @@ class UntisService:
 
         today_str = today.isoformat()
         old_periods = [p for p in self.load_user_timetable(user_id) if p.date >= today_str]
+        
+        # No previous periods to compare with, treat all as new baseline without changes
+        if len(old_periods) == 0:
+            self.save_user_timetable(user_id, new_periods)
+            return []
+
         changes = detect_changes(old_periods, new_periods)
         if changes:
             self._store_detected_changes(user_id, changes, today, end)
