@@ -330,12 +330,12 @@ class RefereeService:
 
         if assignment_type == "ANSETZUNG":
             available, reason = self._check_availability(assignment)
-            if available:
-                event_id = self._calendar.create_referee_event(assignment, location_for_event)
-                if event_id:
-                    self._update_event_map(None, assignment, event_id)
-                    # Create travel events after successful calendar event creation
-                    self._create_travel_events(assignment, "referee")
+            
+            event_id = self._calendar.create_referee_event(assignment, location_for_event)
+            if event_id:
+                self._update_event_map(None, assignment, event_id)
+                self._create_travel_events(assignment, "referee")
+            
             conflict = self._check_game_conflict(assignment_datetime(assignment))
             icon = self._icon_for_conflict(conflict)
             message = self._notification_text(
