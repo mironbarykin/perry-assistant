@@ -148,4 +148,5 @@ class TravelResult:
     transit_legs: list[str]
     transit_impossible: bool
     strategy: str | None = None  # "home_visit" or "direct" for double-game days
+    skip_calendar_event: bool = False  # Skip calendar event for 2nd game in double-game scenario
 
