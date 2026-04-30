@@ -73,6 +73,8 @@ class TravelService:
         goal_arrival: datetime,
         role: str,  # "referee" or "coach"
         skip_transit: bool = False,  # NEW: Skip Google API for availability checks
+        game_start: datetime | None = None,  # NEW: Actual game start time (for early arrival)
+        is_second_game_in_double: bool = False,  # NEW: Skip calendar event for 2nd game
     ) -> TravelResult:
         """
         Compute travel options (car and transit) for a given route and arrival deadline.
@@ -81,13 +83,16 @@ class TravelService:
         - Caches travel results to avoid redundant API calls
         - Skips transit routing during availability checks
         - Uses address caching for geocoding
+        - Ensures arrival 30-40 minutes BEFORE game start (not at goal_arrival)
         
         Args:
             origin_addr: Origin address (e.g., home or gym)
             dest_addr: Destination address (e.g., gym)
-            goal_arrival: Target arrival time
+            goal_arrival: Target arrival time (for API queries, legacy)
             role: "referee" (30 min buffer) or "coach" (50 min buffer)
             skip_transit: If True, only compute car (for availability checks)
+            game_start: Actual game start time (use this to compute early arrival)
+            is_second_game_in_double: If True, set skip_calendar_event=True
             
         Returns:
             TravelResult with car/transit options
@@ -99,8 +104,13 @@ class TravelService:
             logger.debug(f"Travel cache hit: {origin_addr} → {dest_addr}")
             return cached_result
         
+        # Early arrival: 30-40 minutes BEFORE game start
+        # Use game_start if provided, otherwise use goal_arrival
+        target_arrival = game_start - timedelta(minutes=35) if game_start else goal_arrival
+        
+        # Buffer for API queries (30 min for referee, 50 min for coach)
         buffer_minutes = 30 if role == "referee" else 50
-        must_arrive_by = goal_arrival - timedelta(minutes=buffer_minutes)
+        must_arrive_by = target_arrival - timedelta(minutes=buffer_minutes)
         
         # Geocode both addresses
         origin_coords = self._get_coords(origin_addr)
@@ -112,7 +122,8 @@ class TravelService:
             car_duration = get_car_duration_minutes(origin_coords, dest_coords, self.ors_api_key)
             if car_duration:
                 buffered_duration = apply_traffic_buffer(car_duration)
-                car_leave_by = goal_arrival - timedelta(minutes=buffered_duration)
+                # Leave in time to arrive 35 minutes before game (30-40 min early arrival)
+                car_leave_by = target_arrival - timedelta(minutes=buffered_duration)
         
         transit_departure = None
         transit_arrival = None
@@ -146,6 +157,7 @@ class TravelService:
             transit_legs=transit_legs,
             transit_impossible=transit_impossible,
             strategy=None,
+            skip_calendar_event=is_second_game_in_double,  # Skip calendar for 2nd game
         )
         
         # Cache the result
@@ -270,6 +282,11 @@ class TravelService:
         
         transit_legs = journey["legs_summary"] if journey else []
         
+        # Determine if we should skip calendar event
+        # Skip ONLY if both games are at the same gym (no commute needed)
+        same_gym = (gym_a_addr.lower().strip() == gym_b_addr.lower().strip())
+        skip_event = same_gym  # Skip event only if same gym
+        
         return TravelResult(
             origin_address=origin,
             dest_address=gym_b_addr,
@@ -280,6 +297,7 @@ class TravelService:
             transit_legs=transit_legs,
             transit_impossible=journey is None,
             strategy=strategy,
+            skip_calendar_event=skip_event,  # NEW: Skip only if same gym (no commute)
         )
     
     def get_api_stats(self) -> dict:
