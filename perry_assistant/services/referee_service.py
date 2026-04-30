@@ -828,8 +828,14 @@ class RefereeService:
         except Exception:  # noqa: BLE001
             return None
 
-    def _create_travel_events(self, assignment: RefereeAssignment, role: str) -> None:
-        """Create travel events for a referee/coach assignment if travel is computable."""
+    def _create_travel_events(self, assignment: RefereeAssignment, role: str, is_second_game_in_double: bool = False) -> None:
+        """Create travel events for a referee/coach assignment if travel is computable.
+        
+        Args:
+            assignment: The referee assignment
+            role: "referee" or "coach"
+            is_second_game_in_double: Deprecated. Use pre-computed travel_info instead.
+        """
         # Skip if home address is not configured
         if not self._config.home_address or not self._config.home_address.strip():
             return
@@ -845,13 +851,23 @@ class RefereeService:
             return
         
         try:
-            # Compute travel options
-            result = self._travel.compute_travel(
-                self._config.home_address,
-                dest_addr,
-                game_dt,
-                role
-            )
+            # Use pre-computed travel_info if available (from double-game strategy)
+            # Otherwise compute fresh travel options
+            if assignment.travel_info:
+                result = assignment.travel_info
+            else:
+                result = self._travel.compute_travel(
+                    self._config.home_address,
+                    dest_addr,
+                    game_dt,
+                    role,
+                    game_start=game_dt,  # Pass actual game start for early arrival buffer
+                )
+            
+            # Skip calendar event if marked (e.g., same-gym double-game)
+            if result.skip_calendar_event:
+                logger.debug(f"Skipping calendar event for {dest_addr} (pre-marked as skip)")
+                return
             
             # Create calendar events based on available travel options
             if result.car_leave_by:
