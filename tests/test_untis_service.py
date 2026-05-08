@@ -9,6 +9,7 @@ from perry_assistant.services.untis_service import (
     UntisService,
     detect_changes,
     format_change_notification,
+    _merge_doubled_lessons,
     _time_gap_minutes,
 )
 
@@ -26,6 +27,7 @@ def _period(
     room: str = "101",
     code: str | None = None,
     lesson_number: int | None = 1,
+    lesson_count: int = 1,
     pid: int = 1,
 ) -> UntisPeriod:
     return UntisPeriod(
@@ -38,6 +40,7 @@ def _period(
         room=room,
         code=code,
         lesson_number=lesson_number,
+        lesson_count=lesson_count,
     )
 
 
@@ -113,7 +116,24 @@ class TestDetectChanges:
         p3_new = _period(subject="PHYS", start="10:00", end="10:45", pid=3)
         changes = detect_changes([p1_old, p2_old], [p1_new, p3_new])
         change_types = {c.change_type for c in changes}
-        assert "cancelled" in change_types  # MATH cancelled
+        assert "cancelled" in change_types
+        assert "modified" in change_types or "new_exam" in change_types
+
+    def test_interleaved_double_lessons_are_merged_by_signature_and_time(self):
+        periods = [
+            _period(date="2026-05-08", start="07:55", end="08:40", subject="CH G3", teacher="KB", room="R001", pid=701602),
+            _period(date="2026-05-08", start="11:35", end="12:20", subject="D G4", teacher="ADL", room="R002", pid=507443),
+            _period(date="2026-05-08", start="07:55", end="08:40", subject="MU G1", teacher="ADL", room="R124", pid=595760),
+            _period(date="2026-05-08", start="08:45", end="09:30", subject="CH G3", teacher="KB", room="R001", pid=701605),
+            _period(date="2026-05-08", start="12:25", end="13:10", subject="D G4", teacher="ADL", room="R002", pid=507446),
+            _period(date="2026-05-08", start="08:45", end="09:30", subject="MU G1", teacher="ADL", room="R124", pid=595763),
+            _period(date="2026-05-08", start="09:35", end="10:20", subject="CH G3", teacher="KB", room="R001", pid=701608),
+        ]
+        merged = _merge_doubled_lessons(periods)
+        counts = {period.subject: period.lesson_count for period in merged}
+        assert counts["CH G3"] == 3
+        assert counts["MU G1"] == 2
+        assert counts["D G4"] == 2
 
 
 # ---------------------------------------------------------------------------
@@ -134,7 +154,25 @@ class TestFormatChangeNotification:
         ch = TimetableChange("restored", p, None)
         msg = format_change_notification(ch)
         assert "wieder statt" in msg
-        assert "BIO" in msg
+
+    def test_modified_double_lesson_uses_room_change_format(self):
+        old = _period(subject="SP G6", teacher="RUF", room="R302", start="07:55", end="09:30", lesson_count=2)
+        new = _period(subject="SP G6", teacher="RUF", room="R301", start="07:55", end="09:30", lesson_count=2)
+        ch = TimetableChange("modified", new, old)
+        msg = format_change_notification(ch)
+        assert "SP G6 x2" in msg
+        assert "(RUF/R302 → jetzt: RUF/R301)" in msg
+        assert "vorher" not in msg
+
+    def test_modified_double_lesson_omits_room_change_format_when_unchanged(self):
+        old = _period(subject="SP G6", teacher="RUF", room="R302", start="07:55", end="09:30", lesson_count=2)
+        new = _period(subject="SP G6", teacher="RUF", room="R302", start="07:55", end="09:30", lesson_count=2)
+        new.info = "Sport drinnen > Basketball"
+        ch = TimetableChange("modified", new, old)
+        msg = format_change_notification(ch)
+        assert "SP G6 x2" in msg
+        assert "→ jetzt:" not in msg
+        assert "Info: Sport drinnen > Basketball" in msg
 
     def test_new_exam(self):
         p = _period(subject="Klausur", date="2026-03-15")

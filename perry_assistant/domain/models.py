@@ -95,6 +95,7 @@ class UntisPeriod:
     subst_text: str | None = None
     ls_text: str | None = None
     info: str | None = None
+    lesson_count: int = 1
 
     def to_dict(self) -> dict:
         return {
@@ -110,6 +111,7 @@ class UntisPeriod:
             "subst_text": self.subst_text,
             "ls_text": self.ls_text,
             "info": self.info,
+            "lesson_count": self.lesson_count,
         }
 
     @staticmethod
@@ -127,6 +129,7 @@ class UntisPeriod:
             subst_text=data.get("subst_text"),
             ls_text=data.get("ls_text"),
             info=data.get("info"),
+            lesson_count=data.get("lesson_count", 1),
         )
 
 

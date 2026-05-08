@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 # How many days ahead to check for changes
 _LOOKAHEAD_DAYS = 10
 _SCHOOL_GAP_MINUTES = 60
+_DOUBLE_LESSON_GAP_MINUTES = 10
 _SCHOOL_SUMMARY = "🏫 School"
 
 
@@ -36,6 +37,7 @@ def _periods_equal(a: UntisPeriod, b: UntisPeriod) -> bool:
         and a.subst_text == b.subst_text
         and a.ls_text == b.ls_text
         and a.info == b.info
+        and a.lesson_count == b.lesson_count
     )
 
 
@@ -59,70 +61,76 @@ def _is_exam_period(period: UntisPeriod) -> bool:
 def _periods_by_date(periods: list[UntisPeriod]) -> dict[str, list[UntisPeriod]]:
     """Group periods by date."""
     result: dict[str, list[UntisPeriod]] = {}
-    for p in periods:
-        if p.date not in result:
-            result[p.date] = []
-        result[p.date].append(p)
+    for period in periods:
+        result.setdefault(period.date, []).append(period)
     return result
 
 
-def _are_consecutive_lessons(p1: UntisPeriod, p2: UntisPeriod) -> bool:
-    """Check if p2 immediately follows p1 (back-to-back)."""
-    return p1.end_time == p2.start_time
-
-
-def _are_same_lesson_type(p1: UntisPeriod, p2: UntisPeriod) -> bool:
-    """Check if two periods are the same lesson (subject, teacher, room)."""
-    return (
-        p1.subject == p2.subject
-        and p1.teacher == p2.teacher
-        and p1.room == p2.room
-        and p1.code == p2.code
-    )
+def _lesson_signature(period: UntisPeriod) -> tuple[str, str, str, str | None]:
+    return (period.subject, period.teacher, period.room, period.code)
 
 
 def _merge_doubled_lessons(periods: list[UntisPeriod]) -> list[UntisPeriod]:
     """
-    Detect and merge back-to-back doubled lessons (same subject, teacher, room).
-    Returns modified list where doubled lessons are merged into one period.
+    Merge repeated lesson runs into a single period with lesson_count > 1.
+
+    Lessons are grouped by date and signature, then merged by start/end time so
+    the order in the raw Untis payload does not matter.
     """
-    if len(periods) < 2:
-        return periods
+    merged_periods: list[UntisPeriod] = []
+    for _, day_periods in sorted(_periods_by_date(periods).items()):
+        groups: dict[tuple[str, str, str, str | None], list[UntisPeriod]] = {}
+        for period in sorted(day_periods, key=lambda p: (p.start_time, p.end_time, p.subject, p.teacher, p.room, p.id)):
+            groups.setdefault(_lesson_signature(period), []).append(period)
 
-    result: list[UntisPeriod] = []
-    i = 0
-    while i < len(periods):
-        current = periods[i]
-        
-        # Check if next period is a consecutive identical lesson
-        if i + 1 < len(periods):
-            next_period = periods[i + 1]
-            if _are_consecutive_lessons(current, next_period) and _are_same_lesson_type(current, next_period):
-                # Merge: keep current but extend end_time to include next
-                merged = UntisPeriod(
-                    id=current.id,
-                    date=current.date,
-                    start_time=current.start_time,
-                    end_time=next_period.end_time,
-                    subject=current.subject,
-                    teacher=current.teacher,
-                    room=current.room,
-                    code=current.code,
-                    lesson_number=None,  # Can't reliably merge lesson numbers
-                    subst_text=current.subst_text or next_period.subst_text,
-                    ls_text=current.ls_text or next_period.ls_text,
-                    info=current.info or next_period.info,
-                )
-                # Mark as doubled so we can display "x2" later
-                merged._doubled = True  # type: ignore
-                result.append(merged)
-                i += 2
-                continue
-        
-        result.append(current)
-        i += 1
+        for group_periods in groups.values():
+            group_periods.sort(key=lambda p: (p.start_time, p.end_time, p.id))
+            run: list[UntisPeriod] = [group_periods[0]]
+            for period in group_periods[1:]:
+                previous = run[-1]
+                gap_minutes = _time_gap_minutes(previous.end_time, period.start_time)
+                if 0 <= gap_minutes <= _DOUBLE_LESSON_GAP_MINUTES:
+                    run.append(period)
+                    continue
+                merged_periods.append(_merge_period_run(run))
+                run = [period]
+            merged_periods.append(_merge_period_run(run))
 
-    return result
+    merged_periods.sort(key=lambda p: (p.date, p.start_time, p.end_time, p.subject, p.teacher, p.room, p.id))
+    return merged_periods
+
+
+def _merge_period_run(periods: list[UntisPeriod]) -> UntisPeriod:
+    first = periods[0]
+    if len(periods) == 1:
+        return first
+    return UntisPeriod(
+        id=first.id,
+        date=first.date,
+        start_time=first.start_time,
+        end_time=periods[-1].end_time,
+        subject=first.subject,
+        teacher=first.teacher,
+        room=first.room,
+        code=first.code,
+        lesson_number=first.lesson_number,
+        subst_text=_merge_text_values(period.subst_text for period in periods),
+        ls_text=_merge_text_values(period.ls_text for period in periods),
+        info=_merge_text_values(period.info for period in periods),
+        lesson_count=len(periods),
+    )
+
+
+def _merge_text_values(values) -> str | None:
+    parts: list[str] = []
+    for value in values:
+        if not value:
+            continue
+        if value not in parts:
+            parts.append(value)
+    if not parts:
+        return None
+    return "\n".join(parts)
 
 
 def _is_full_day_change(
@@ -130,19 +138,12 @@ def _is_full_day_change(
     new_periods: list[UntisPeriod],
     date: str,
 ) -> bool:
-    """
-    Check if a full day changed from completely empty to completely empty.
-    This happens during holidays: entire day added or cancelled should be ignored.
-    """
+    """Skip only obvious whole-day transitions with no overlap."""
     old_day = [p for p in old_periods if p.date == date and p.code != "cancelled"]
     new_day = [p for p in new_periods if p.date == date and p.code != "cancelled"]
-    
-    # If both are empty, it's a full-day change (holiday)
-    # If one was empty and now has content (or vice versa), skip notification
-    old_empty = len(old_day) == 0
-    new_empty = len(new_day) == 0
-    
-    return old_empty and new_empty
+    if old_day and new_day:
+        return False
+    return max(len(old_day), len(new_day)) >= 3
 
 
 def detect_changes(
@@ -150,45 +151,48 @@ def detect_changes(
     new_periods: list[UntisPeriod],
 ) -> list[TimetableChange]:
     """Compare two timetable snapshots and return a list of detected changes."""
-    # Pre-process: merge doubled lessons
     old_periods = _merge_doubled_lessons(old_periods)
     new_periods = _merge_doubled_lessons(new_periods)
-    
+
     changes: list[TimetableChange] = []
+    old_by_date = _periods_by_date(old_periods)
+    new_by_date = _periods_by_date(new_periods)
 
-    old_by_key: dict[str, UntisPeriod] = {_period_key(p): p for p in old_periods}
-    new_by_key: dict[str, UntisPeriod] = {_period_key(p): p for p in new_periods}
+    for date in sorted(set(old_by_date) | set(new_by_date)):
+        old_day = [p for p in old_by_date.get(date, []) if p.code != "cancelled"]
+        new_day = [p for p in new_by_date.get(date, []) if p.code != "cancelled"]
 
-    # Detect cancelled, restored, or modified
-    for key, new_p in new_by_key.items():
-        if key in old_by_key:
-            old_p = old_by_key[key]
-            if not _periods_equal(old_p, new_p):
-                if new_p.code == "cancelled" and old_p.code != "cancelled":
-                    changes.append(TimetableChange("cancelled", new_p, old_p))
-                elif old_p.code == "cancelled" and new_p.code != "cancelled":
-                    changes.append(TimetableChange("restored", new_p, old_p))
-                elif _is_exam_period(new_p) and not _is_exam_period(old_p):
-                    changes.append(TimetableChange("new_exam", new_p, old_p))
-                else:
-                    changes.append(TimetableChange("modified", new_p, old_p))
-        else:
-            # New period appeared - skip if it's a full-day holiday change
-            if _is_full_day_change(old_periods, new_periods, new_p.date):
-                continue
-            
-            if _is_exam_period(new_p):
-                changes.append(TimetableChange("new_exam", new_p, None))
+        if _is_full_day_change(old_day, new_day, date):
+            continue
+
+        old_by_key: dict[str, UntisPeriod] = {
+            _period_key(p): p for p in old_periods if p.date == date
+        }
+        new_by_key: dict[str, UntisPeriod] = {
+            _period_key(p): p for p in new_periods if p.date == date
+        }
+
+        for key, new_p in new_by_key.items():
+            if key in old_by_key:
+                old_p = old_by_key[key]
+                if not _periods_equal(old_p, new_p):
+                    if new_p.code == "cancelled" and old_p.code != "cancelled":
+                        changes.append(TimetableChange("cancelled", new_p, old_p))
+                    elif old_p.code == "cancelled" and new_p.code != "cancelled":
+                        changes.append(TimetableChange("restored", new_p, old_p))
+                    elif _is_exam_period(new_p) and not _is_exam_period(old_p):
+                        changes.append(TimetableChange("new_exam", new_p, old_p))
+                    else:
+                        changes.append(TimetableChange("modified", new_p, old_p))
             else:
-                changes.append(TimetableChange("modified", new_p, None))
+                if _is_exam_period(new_p):
+                    changes.append(TimetableChange("new_exam", new_p, None))
+                else:
+                    changes.append(TimetableChange("modified", new_p, None))
 
-    # Detect removed periods (not in new, but was in old and not cancelled already)
-    for key, old_p in old_by_key.items():
-        if key not in new_by_key and old_p.code != "cancelled":
-            # Skip if it's a full-day holiday change
-            if _is_full_day_change(old_periods, new_periods, old_p.date):
-                continue
-            changes.append(TimetableChange("cancelled", old_p, None))
+        for key, old_p in old_by_key.items():
+            if key not in new_by_key and old_p.code != "cancelled":
+                changes.append(TimetableChange("cancelled", old_p, None))
 
     return changes
 
@@ -201,10 +205,7 @@ def format_change_notification(change: TimetableChange, locale: str = "de") -> s
     start = p.start_time
 
     period_num = f"{p.lesson_number}. Std" if p.lesson_number else start
-    
-    # Check if this is a doubled lesson (merged from two consecutive lessons)
-    is_doubled = getattr(p, "_doubled", False)
-    subject_display = f"{subj} x2" if is_doubled else subj
+    subject_display = f"{subj} x{p.lesson_count}" if p.lesson_count > 1 else subj
 
     extra = _format_extra_fields(p)
 
@@ -219,19 +220,14 @@ def format_change_notification(change: TimetableChange, locale: str = "de") -> s
     if change.change_type == "modified":
         old = change.old_period
         if old:
-            # Only show "vorher/jetzt" if teacher or room actually changed
-            teacher_changed = (p.teacher or "?") != (old.teacher or "?")
-            room_changed = (p.room or "?") != (old.room or "?")
-            
-            if teacher_changed or room_changed:
+            old_label = _format_teacher_room(old)
+            new_label = _format_teacher_room(p)
+            if old_label != new_label:
                 return (
                     f"🔄 {period_num} {subject_display} geändert am {date_str}"
-                    f" (vorher: {old.teacher or '?'}/{old.room or '?'}"
-                    f" → jetzt: {p.teacher or '?'}/{p.room or '?'}){extra}"
+                    f" ({old_label} → jetzt: {new_label}){extra}"
                 )
-            else:
-                # No actual change in teacher/room, just note it was modified
-                return f"🔄 {period_num} {subject_display} geändert am {date_str}{extra}"
+            return f"🔄 {period_num} {subject_display} geändert am {date_str}{extra}"
         return f"🆕 {period_num} {subject_display} hinzugefügt am {date_str}{extra}"
     return f"ℹ️ {period_num} {subject_display} am {date_str}: {change.change_type}{extra}"
 
@@ -248,6 +244,18 @@ def _format_extra_fields(p: UntisPeriod) -> str:
     if not parts:
         return ""
     return "\n  " + "\n  ".join(parts)
+
+
+def _format_teacher_room(period: UntisPeriod) -> str:
+    teacher = period.teacher or "?"
+    room = period.room or "?"
+    if teacher == "?" and room == "?":
+        return "?"
+    if teacher == "?":
+        return room
+    if room == "?":
+        return teacher
+    return f"{teacher}/{room}"
 
 
 def _format_date(date_str: str) -> str:
