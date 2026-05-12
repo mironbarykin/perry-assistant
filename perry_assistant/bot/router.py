@@ -16,7 +16,7 @@ from telegram.ext import (
 
 from perry_assistant.constants import BERLIN_TZ
 from perry_assistant.bot.error_handler import error_handler
-from perry_assistant.bot.handlers import absences, admin, common, game_messages, referee, schedule, stats, uportal, weather
+from perry_assistant.bot.handlers import trackers, absences, admin, common, game_messages, referee, schedule, stats, uportal, weather
 from perry_assistant.bot.handlers import untis_timetable
 from perry_assistant.domain.types import AppServices
 
@@ -46,7 +46,9 @@ def build_application(services: AppServices) -> Application:
     app.add_handler(CommandHandler("parents", admin.parents))
     app.add_handler(CommandHandler("untis_status", untis_timetable.untis_status))
     app.add_handler(CommandHandler("untis_disconnect", untis_timetable.untis_disconnect))
-
+    app.add_handler(CommandHandler("shower", trackers.shower))
+    app.add_handler(CommandHandler("fap", trackers.fap))
+    app.add_handler(CommandHandler("cancel", trackers.cancel_tracker))
     app.add_handler(CommandHandler("absence", absences.absence))
     app.add_handler(CommandHandler("absences", absences.absences_all))
     app.add_handler(CommandHandler("excused", absences.absences_excused))
@@ -93,6 +95,7 @@ def build_application(services: AppServices) -> Application:
 
     app.add_handler(MessageHandler(filters.Regex(r"^4/.*"), referee.handle_auth_code))
     app.add_handler(MessageHandler(filters.LOCATION, weather.receive_weather_location))
+    app.add_handler(CallbackQueryHandler(trackers.dispatch_callback, pattern=r"^(when_|loc_|temp_|prod_)") )
     app.add_handler(CallbackQueryHandler(uportal.ignore_uportal_game, pattern=r"^uio:"))
     app.add_handler(CallbackQueryHandler(game_messages.select_game, pattern=r"^gmsg:"))
 
@@ -110,7 +113,7 @@ def build_application(services: AppServices) -> Application:
     )
     app.add_handler(other_date_conv)
 
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, common.button_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, trackers.dispatch_text))
     app.add_error_handler(error_handler)
 
     app.job_queue.run_repeating(referee.process_basketball_emails_job, interval=300, first=0)

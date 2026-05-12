@@ -8,6 +8,7 @@ from perry_assistant.bot.keyboards import (
     build_parent_keyboard,
     build_referee_menu_keyboard,
     build_schedule_keyboard,
+    build_tracker_menu_keyboard,
 )
 from perry_assistant.domain.types import AppServices
 from perry_assistant.storage.json_store import read_json
@@ -166,6 +167,9 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
         "EMAILS",
         "UPORTAL",
         "GAMES",
+        "TRACKER",
+        "SHOWER",
+        "FAP"
     } and not is_admin:
         await update.message.reply_text("Access denied. Admin only.")
         return
@@ -281,4 +285,20 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
         from perry_assistant.bot.handlers.untis_timetable import untis_status
 
         await untis_status(update, context)
+        return
+
+    if text == "TRACKER":
+        await update.message.reply_text("OK", reply_markup=build_tracker_menu_keyboard())
+        return
+    
+    if text == "SHOWER":
+        from perry_assistant.bot.handlers.trackers import shower
+
+        await shower(update, context)
+        return
+    
+    if text == "FAP":
+        from perry_assistant.bot.handlers.trackers import fap
+
+        await fap(update, context)
         return
