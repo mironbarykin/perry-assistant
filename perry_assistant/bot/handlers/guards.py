@@ -4,7 +4,7 @@ from functools import wraps
 from typing import Any, Awaitable, Callable, TypeVar
 
 from telegram import Update
-from telegram.ext import CallbackContext
+from telegram.ext import CallbackContext, ConversationHandler
 
 from perry_assistant.bot.handlers.common import get_services
 from perry_assistant.storage.json_store import read_json
@@ -16,17 +16,19 @@ FAMILY_DENIED_TEXT = "🫸You are not authorized to use this command. (Error: AL
 
 
 def _response_message(update: Update):
-    if update.message:
+    if getattr(update, "message", None):
         return update.message
-    if update.callback_query and update.callback_query.message:
-        return update.callback_query.message
+    query = getattr(update, "callback_query", None)
+    if query and getattr(query, "message", None):
+        return query.message
     return None
 
 
 async def _deny(update: Update, text: str, alert: bool = False) -> None:
-    if update.callback_query:
+    query = getattr(update, "callback_query", None)
+    if query:
         try:
-            await update.callback_query.answer(text, show_alert=alert)
+            await query.answer(text, show_alert=alert)
             return
         except Exception:
             pass
@@ -57,18 +59,16 @@ def _is_family(update: Update, context: CallbackContext) -> bool:
     return user.id in parent_ids
 
 
-def require_admin(handler: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
+def require_admin(handler):
     @wraps(handler)
-    async def wrapper(update: Update, context: CallbackContext, *args: Any, **kwargs: Any) -> T | None:
+    async def wrapper(update, context, *args, **kwargs):
         if not update.effective_user:
-            return None
+            return ConversationHandler.END
         if not _is_admin(update, context):
             await _deny(update, ADMIN_DENIED_TEXT, alert=True)
-            return None
+            return ConversationHandler.END
         return await handler(update, context, *args, **kwargs)
-
     return wrapper
-
 
 def require_family(handler: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
     @wraps(handler)

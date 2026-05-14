@@ -10,7 +10,7 @@ from google.auth.exceptions import RefreshError
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from perry_assistant.bot.handlers.referee import send_auth_link_to_admin
+from perry_assistant.bot.handlers.auth import send_auth_link_to_admin
 from perry_assistant.constants import BERLIN_TZ
 
 

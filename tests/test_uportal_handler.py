@@ -53,7 +53,7 @@ def test_uportal_handler_admin_only():
     asyncio.run(uportal(update, context))
 
     assert service.called is False
-    assert message.replies == ["Admin only."]
+    assert '🫸' in ','.join(message.replies)
 
 
 def test_uportal_handler_calls_service_for_admin():

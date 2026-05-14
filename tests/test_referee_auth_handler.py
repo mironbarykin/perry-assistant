@@ -4,7 +4,7 @@ import asyncio
 import pickle
 from types import SimpleNamespace
 
-from perry_assistant.bot.handlers.referee import handle_auth_code
+from perry_assistant.bot.handlers.auth import handle_auth_code
 
 
 class _FakeFlow:

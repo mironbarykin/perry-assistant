@@ -170,7 +170,7 @@ class TestPublishedStart:
         result = asyncio.run(published_start(update, context))
 
         assert result == ConversationHandler.END
-        assert "Admin" in message.replies[0]
+        assert "🫸" in message.replies[0]
 
     def test_no_message_returns_end(self, cfg: AppConfig) -> None:
         update = SimpleNamespace(message=None, effective_user=SimpleNamespace(id=123456))
