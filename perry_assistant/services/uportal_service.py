@@ -121,28 +121,32 @@ class UportalService:
             for job in app.job_queue.get_jobs_by_name(name):
                 job.schedule_removal()
 
-        app.job_queue.run_once(
-            callback,
-            when=targets["morning_dt"],
-            name=GENERATED_JOB_MORNING,
-            data={"reason": "generated:morning"},
-        )
-        app.job_queue.run_once(
-            callback,
-            when=targets["evening_dt"],
-            name=GENERATED_JOB_EVENING,
-            data={"reason": "generated:evening"},
-        )
-        app.job_queue.run_once(
-            callback,
-            when=targets["midnight_dt"],
-            name=GENERATED_JOB_MIDNIGHT,
-            data={"reason": "generated:midnight"},
-        )
+        if targets["morning_dt"] is not None:
+            app.job_queue.run_once(
+                callback,
+                when=targets["morning_dt"],
+                name=GENERATED_JOB_MORNING,
+                data={"reason": "generated:morning"},
+            )
+        
+        if targets["evening_dt"] is not None:
+            app.job_queue.run_once(
+                callback,
+                when=targets["evening_dt"],
+                name=GENERATED_JOB_EVENING,
+                data={"reason": "generated:evening"},
+            )
+        if targets["midnight_dt"] is not None:
+            app.job_queue.run_once(
+                callback,
+                when=targets["midnight_dt"],
+                name=GENERATED_JOB_MIDNIGHT,
+                data={"reason": "generated:midnight"},
+            )
         return {
-            "morning": targets["morning_dt"].isoformat(),
-            "evening": targets["evening_dt"].isoformat(),
-            "midnight": targets["midnight_dt"].isoformat(),
+            "morning": targets["morning_dt"].isoformat() if targets["morning_dt"] else None,
+            "evening": targets["evening_dt"].isoformat() if targets["evening_dt"] else None,
+            "midnight": targets["midnight_dt"].isoformat() if targets["midnight_dt"] else None,
         }
 
     def _load_or_create_window_state(self, now: dt.datetime) -> dict:
@@ -227,17 +231,17 @@ class UportalService:
         )
 
         if morning_dt <= now:
-            morning_dt = now + dt.timedelta(minutes=1)
+            morning_dt = None
         if evening_dt <= now:
-            evening_dt = now + dt.timedelta(minutes=1)
+            evening_dt = None
         if midnight_dt <= now:
-            midnight_dt = now + dt.timedelta(minutes=1)
+            midnight_dt = None
 
         state["generated_for"] = today_iso
         state["generated_targets"] = {
-            "morning": morning_dt.isoformat(),
-            "evening": evening_dt.isoformat(),
-            "midnight": midnight_dt.isoformat(),
+            "morning": morning_dt.isoformat() if morning_dt else None,
+            "evening": evening_dt.isoformat() if evening_dt else None,
+            "midnight": midnight_dt.isoformat() if midnight_dt else None,
         }
         return {
             "morning_dt": morning_dt,

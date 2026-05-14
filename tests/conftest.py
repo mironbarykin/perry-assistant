@@ -50,5 +50,5 @@ def app_config(tmp_path: Path) -> AppConfig:
         michi_school_calendar_id="test-michi-calendar-id",
         home_address="Test Address 123, Test City",
         ors_api_key="test-ors-api-key",
-        google_api_key=None,
+        google_api_key="test-google-api-key",
     )

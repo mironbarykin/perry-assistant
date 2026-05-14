@@ -225,7 +225,7 @@ def format_change_notification(change: TimetableChange, locale: str = "de") -> s
             if old_label != new_label:
                 return (
                     f"🔄 {period_num} {subject_display} geändert am {date_str}"
-                    f" ({old_label} → jetzt: {new_label}){extra}"
+                    f" ({old_label} → {new_label}){extra}"
                 )
             return f"🔄 {period_num} {subject_display} geändert am {date_str}{extra}"
         return f"🆕 {period_num} {subject_display} hinzugefügt am {date_str}{extra}"
@@ -612,6 +612,7 @@ class UntisService:
         For Michi: merge consecutive same-subject periods (double periods).
         Returns list of dicts with 'start', 'end', 'summary', 'description'.
         '''
+
         day_periods = sorted(
             [p for p in periods if p.date == date_str and p.code != "cancelled"],
             key=lambda p: p.start_time,
@@ -842,7 +843,28 @@ def _date_range(start: dt.date, end: dt.date) -> list[dt.date]:
 def _michi_subject(block: list[UntisPeriod]) -> str:
     if not block:
         return "Schule"
-    return block[0].subject or "Schule"
+    lessons = {
+        'M': 'Mathe',
+        'VX-M': 'Mathe Vertiefung',
+        'D': 'Deutsch',
+        'E': 'Englisch',
+        'SP': 'Sport',
+        'ER': 'Religion',
+        'PH': 'Physik',
+        'CH': 'Chemie',
+        'BI': 'Biologie',
+        'GE': 'Geschichte',
+        'SW': 'SoWi',
+        'S0': 'Spanisch',
+        'S9': 'Spanisch',
+        'L': 'Latein',
+        'F': 'Französisch',
+        'R': 'Russisch',
+        "MU": "Musik",
+        "KU": "Kunst",
+        'EK': 'Erdkunde'
+    }
+    return lessons[block[0].subject.split()[0]] or "Schule"
 
 
 def _time_gap_minutes(end_time: str, start_time: str) -> int:

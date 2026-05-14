@@ -157,6 +157,8 @@ def test_schedule_weekday_reminder_is_d_minus_3(app_config):
     service = GameMessageService(app_config, _FakeCalendarClient())
     today = dt.datetime.now(BERLIN_TZ).date()
     friday = _next_weekday(today, 4)
+    if friday > (today - dt.timedelta(days=3)):
+        friday += dt.timedelta(days=7)
     start = dt.datetime(friday.year, friday.month, friday.day, 18, 0, tzinfo=BERLIN_TZ)
     parsed = service._parse_events(  # noqa: SLF001
         [

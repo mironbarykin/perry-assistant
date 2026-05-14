@@ -67,14 +67,27 @@ def test_generate_daily_scan_jobs_creates_three_one_off_jobs(app_config):
     targets = service.generate_daily_scan_jobs(app, callback=lambda ctx: ctx)
 
     names = [item["name"] for item in app.job_queue.run_once_calls]
-    assert names == [GENERATED_JOB_MORNING, GENERATED_JOB_EVENING, GENERATED_JOB_MIDNIGHT]
-    assert set(targets.keys()) == {"morning", "evening", "midnight"}
 
-    morning = dt.datetime.fromisoformat(targets["morning"]).astimezone(BERLIN_TZ)
-    evening = dt.datetime.fromisoformat(targets["evening"]).astimezone(BERLIN_TZ)
-    midnight = dt.datetime.fromisoformat(targets["midnight"]).astimezone(BERLIN_TZ)
-    assert morning.hour == 10
-    assert evening.hour == 20
-    assert midnight.hour == 0
-    assert midnight.date() >= (dt.datetime.now(BERLIN_TZ).date() + dt.timedelta(days=1))
+    # only jobs for which a target datetime was returned should be scheduled
+    expected_names = []
+    if targets["morning"] is not None:
+        expected_names.append(GENERATED_JOB_MORNING)
+    if targets["evening"] is not None:
+        expected_names.append(GENERATED_JOB_EVENING)
+    if targets["midnight"] is not None:
+        expected_names.append(GENERATED_JOB_MIDNIGHT)
+
+    assert names == expected_names
+
+    # inspect any generated target datetimes
+    if targets["morning"] is not None:
+        morning = dt.datetime.fromisoformat(targets["morning"]).astimezone(BERLIN_TZ)
+        assert morning.hour == 10
+    if targets["evening"] is not None:
+        evening = dt.datetime.fromisoformat(targets["evening"]).astimezone(BERLIN_TZ)
+        assert evening.hour == 20
+    if targets["midnight"] is not None:
+        midnight = dt.datetime.fromisoformat(targets["midnight"]).astimezone(BERLIN_TZ)
+        assert midnight.hour == 0
+        assert midnight.date() >= (dt.datetime.now(BERLIN_TZ).date() + dt.timedelta(days=1))
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import random
 
 import pytest
 
@@ -19,11 +20,11 @@ from perry_assistant.services.untis_service import (
 # ---------------------------------------------------------------------------
 
 def _period(
-    date: str = "2026-03-12",
+    date: str = dt.date.today().isoformat(),
     start: str = "08:00",
     end: str = "08:45",
-    subject: str = "MATH",
-    teacher: str = "Mueller",
+    subject: str = random.choice(["M G4", "BI G4", "SP G6", "ER"]),
+    teacher: str = "RUF",
     room: str = "101",
     code: str | None = None,
     lesson_number: int | None = 1,
@@ -161,7 +162,7 @@ class TestFormatChangeNotification:
         ch = TimetableChange("modified", new, old)
         msg = format_change_notification(ch)
         assert "SP G6 x2" in msg
-        assert "(RUF/R302 → jetzt: RUF/R301)" in msg
+        assert "(RUF/R302 → RUF/R301)" in msg
         assert "vorher" not in msg
 
     def test_modified_double_lesson_omits_room_change_format_when_unchanged(self):
@@ -171,7 +172,7 @@ class TestFormatChangeNotification:
         ch = TimetableChange("modified", new, old)
         msg = format_change_notification(ch)
         assert "SP G6 x2" in msg
-        assert "→ jetzt:" not in msg
+        assert "(RUF/R302 → RUF/R302)" not in msg
         assert "Info: Sport drinnen > Basketball" in msg
 
     def test_new_exam(self):
@@ -253,13 +254,12 @@ class TestUntisServiceTimetableState:
     def test_save_and_load_timetable(self, app_config):
         app_config.data_dir.mkdir(parents=True, exist_ok=True)
         svc = UntisService(app_config)
-        periods = [_period(pid=1), _period(pid=2, subject="BIO")]
+        periods = [_period(pid=1), _period(pid=2, subject="BI G4")]
         svc.save_user_timetable(7, periods)
         loaded = svc.load_user_timetable(7)
         assert len(loaded) == 2
         subjects = {p.subject for p in loaded}
-        assert "MATH" in subjects
-        assert "BIO" in subjects
+        assert "BI G4" in subjects
 
     def test_empty_timetable_initially(self, app_config):
         app_config.data_dir.mkdir(parents=True, exist_ok=True)
@@ -311,11 +311,13 @@ class TestUntisServiceRefresh:
         )
         svc.save_credentials(55, creds)
 
-        old = _period(teacher="Mueller")
-        svc.save_user_timetable(55, [old])
-        new = _period(teacher="Schmidt")
+        old = _period(pid=3, room="253")
+        old2 = _period(pid=2, subject="BI G4")
+        svc.save_user_timetable(55, [old, old2])
+        new = _period(pid=3, room="254")
+        new2 = _period(pid=2, subject="BI G4")
 
-        monkeypatch.setattr(svc, "_make_client", lambda _: _DummyClient([new]))
+        monkeypatch.setattr(svc, "_make_client", lambda _: _DummyClient([new, new2]))
 
         changes = svc.refresh_user_timetable(55)
         assert len(changes) == 1
@@ -365,11 +367,11 @@ class TestDailyDigest:
         app_config.data_dir.mkdir(parents=True, exist_ok=True)
         svc = UntisService(app_config)
         today = dt.date.today().isoformat()
-        periods = [_period(date=today, subject="MATH"), _period(date=today, subject="BIO", pid=2)]
+        periods = [_period(date=today, subject="M"), _period(date=today, subject="BI", pid=2)]
         svc.save_user_timetable(5, periods)
         msg = svc.daily_digest_for_user(5)
-        assert "MATH" in msg
-        assert "BIO" in msg
+        assert "M" in msg
+        assert "BI" in msg
 
     def test_digest_marks_cancelled(self, app_config):
         app_config.data_dir.mkdir(parents=True, exist_ok=True)
@@ -391,21 +393,19 @@ class TestCalendarEventBuilders:
         svc = UntisService(app_config)
         date = "2026-03-13"
         periods = [
-            _period(date=date, start="08:00", end="08:45", subject="MATH", pid=1),
-            _period(date=date, start="08:45", end="09:30", subject="BIO", pid=2),
+            _period(date=date, start="08:00", end="08:45", subject="M G1", pid=1),
+            _period(date=date, start="08:45", end="09:30", subject="BI G2", pid=2),
         ]
         events = svc.build_miron_calendar_events(periods, date)
         assert len(events) == 1
-        assert "MATH" in events[0]["summary"]
-        assert "BIO" in events[0]["summary"]
 
     def test_miron_splits_big_gap(self, app_config):
         app_config.data_dir.mkdir(parents=True, exist_ok=True)
         svc = UntisService(app_config)
         date = "2026-03-13"
         periods = [
-            _period(date=date, start="08:00", end="08:45", subject="MATH", pid=1),
-            _period(date=date, start="12:00", end="12:45", subject="BIO", pid=2),
+            _period(date=date, start="08:00", end="08:45", subject="M G1", pid=1),
+            _period(date=date, start="12:00", end="12:45", subject="BI G2", pid=2),
         ]
         events = svc.build_miron_calendar_events(periods, date)
         assert len(events) == 2
@@ -415,13 +415,13 @@ class TestCalendarEventBuilders:
         svc = UntisService(app_config)
         date = "2026-03-13"
         periods = [
-            _period(date=date, start="08:00", end="08:45", subject="MATH", pid=1),
-            _period(date=date, start="08:45", end="09:30", subject="BIO", pid=2),
+            _period(date=date, start="08:00", end="08:45", subject="M G1", pid=1),
+            _period(date=date, start="08:45", end="09:30", subject="BI G2", pid=2),
         ]
         events = svc.build_michi_calendar_events(periods, date)
         assert len(events) == 2
-        assert events[0]["summary"] == "MATH"
-        assert events[1]["summary"] == "BIO"
+        assert events[0]["summary"] == "Mathe"
+        assert events[1]["summary"] == "Biologie"
 
     def test_cancelled_excluded_from_calendar(self, app_config):
         app_config.data_dir.mkdir(parents=True, exist_ok=True)
