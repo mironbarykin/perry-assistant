@@ -6,23 +6,12 @@ from telegram import KeyboardButton, ReplyKeyboardMarkup, Update
 from telegram.ext import CallbackContext
 
 from perry_assistant.bot.handlers.common import get_services
+from perry_assistant.bot.handlers.guards import require_admin
 from perry_assistant.bot.keyboards import build_main_keyboard
 from perry_assistant.constants import BERLIN_TZ
 
-
-def _is_admin(update: Update, admin_id: int) -> bool:
-    user = update.effective_user
-    return bool(user and user.id == admin_id)
-
-
+@require_admin
 async def setweatherloc(update: Update, context: CallbackContext) -> None:
-    if not update.message:
-        return
-    services = get_services(context)
-    if not _is_admin(update, services.config.miron_id):
-        await update.message.reply_text("Admin only.")
-        return
-
     keyboard = ReplyKeyboardMarkup(
         [[KeyboardButton("Share current location", request_location=True)]],
         resize_keyboard=True,
@@ -33,15 +22,9 @@ async def setweatherloc(update: Update, context: CallbackContext) -> None:
         reply_markup=keyboard,
     )
 
-
+@require_admin
 async def weatherloc(update: Update, context: CallbackContext) -> None:
-    if not update.message:
-        return
     services = get_services(context)
-    if not _is_admin(update, services.config.miron_id):
-        await update.message.reply_text("Admin only.")
-        return
-
     location = services.weather_location_service.get_shared_location()
     if not location:
         await update.message.reply_text("No shared location saved yet. Use /setweatherloc.")
@@ -58,14 +41,9 @@ async def weatherloc(update: Update, context: CallbackContext) -> None:
         )
     )
 
-
+@require_admin
 async def receive_weather_location(update: Update, context: CallbackContext) -> None:
-    if not update.message or not update.message.location:
-        return
     services = get_services(context)
-    if not _is_admin(update, services.config.miron_id):
-        return
-
     loc = update.message.location
     city = services.weather_location_service.resolve_city_name(lat=loc.latitude, lon=loc.longitude)
     saved = services.weather_location_service.save_shared_location(

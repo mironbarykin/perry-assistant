@@ -10,6 +10,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CallbackContext
 
 from perry_assistant.bot.handlers.common import get_services
+from perry_assistant.bot.handlers.guards import require_admin
 from perry_assistant.constants import BERLIN_TZ
 
 
@@ -135,13 +136,9 @@ async def _clear_tracker(context: CallbackContext) -> None:
         ):
             await _delete_message(data.get(key))
 
-
+@require_admin
 async def shower(update: Update, context: CallbackContext) -> int:
     services = get_services(context)
-    if not _is_admin(update, services.config.miron_id):
-        if update.message:
-            await update.message.reply_text("Admin only.")
-        return TrackerState.CHOOSE_WHEN.value
 
     data = _tracker_data(context)
     data.clear()
@@ -158,12 +155,9 @@ async def shower(update: Update, context: CallbackContext) -> int:
     return TrackerState.CHOOSE_WHEN.value
 
 
+@require_admin
 async def fap(update: Update, context: CallbackContext) -> int:
     services = get_services(context)
-    if not _is_admin(update, services.config.miron_id):
-        if update.message:
-            await update.message.reply_text("Admin only.")
-        return TrackerState.CHOOSE_WHEN.value
 
     data = _tracker_data(context)
     data.clear()

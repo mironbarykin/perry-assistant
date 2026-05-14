@@ -14,17 +14,12 @@ def build_main_keyboard(is_admin: bool, is_parent: bool = False) -> ReplyKeyboar
         row3 = [KeyboardButton("TRACKER")]
         return ReplyKeyboardMarkup([row1, row2, row3], resize_keyboard=True)
     if is_parent:
-        row1 = [KeyboardButton("TODAY"), KeyboardButton("SCHEDULE")]
-        return ReplyKeyboardMarkup([row1], resize_keyboard=True)
+        row1 = [KeyboardButton("TODAY"), KeyboardButton("TOMORROW")]
+        row2 = [KeyboardButton("THIS WEEKEND")]
+        row3 = [KeyboardButton("OTHER DATE")]
+        return ReplyKeyboardMarkup([row1, row2, row3], resize_keyboard=True)
     row1 = [KeyboardButton("UNTIS")]
     return ReplyKeyboardMarkup([row1], resize_keyboard=True)
-
-
-def build_parent_keyboard() -> ReplyKeyboardMarkup:
-    row1 = [KeyboardButton("TODAY"), KeyboardButton("TOMORROW")]
-    row2 = [KeyboardButton("THIS WEEKEND")]
-    row3 = [KeyboardButton("OTHER DATE")]
-    return ReplyKeyboardMarkup([row1, row2, row3], resize_keyboard=True)
 
 def build_untis_setup_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(

@@ -4,22 +4,16 @@ from telegram import Update
 from telegram.ext import CallbackContext, ContextTypes
 
 from perry_assistant.bot.handlers.common import get_services
+from perry_assistant.bot.handlers.guards import require_admin
 from perry_assistant.services.uportal_service import (
     IGNORE_CALLBACK_PREFIX,
     IGNORE_ALL_CALLBACK_PREFIX,
     IGNORE_GAME_CALLBACK_PREFIX,
 )
 
-
+@require_admin
 async def uportal(update: Update, context: CallbackContext) -> None:
-    if not update.message:
-        return
-
     services = get_services(context)
-    user = update.effective_user
-    if not user or user.id != services.config.miron_id:
-        await update.message.reply_text("Admin only.")
-        return
 
     await update.message.reply_text("Running Uportal scan...")
     await services.uportal_service.run_manual_scan(context)
@@ -38,30 +32,19 @@ async def process_uportal_generated_scan_job(context: ContextTypes.DEFAULT_TYPE)
         reason = str(context.job.data.get("reason", reason))
     await services.uportal_service.run_generated_scan(context, reason=reason)
 
-
+@require_admin
 async def uportal_ignored(update: Update, context: CallbackContext) -> None:
-    if not update.message:
-        return
-
     services = get_services(context)
-    user = update.effective_user
-    if not user or user.id != services.config.miron_id:
-        await update.message.reply_text("Admin only.")
-        return
-
     await services.uportal_service.run_show_ignored(context)
 
 
+@require_admin
 async def ignore_uportal_game(update: Update, context: CallbackContext) -> None:
     query = update.callback_query
     if not query:
         return
 
     services = get_services(context)
-    user = update.effective_user
-    if not user or user.id != services.config.miron_id:
-        await query.answer("Admin only.", show_alert=True)
-        return
 
     data = query.data or ""
     if not data.startswith(IGNORE_CALLBACK_PREFIX):

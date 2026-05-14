@@ -8,26 +8,11 @@ from telegram import Update
 from telegram.ext import CallbackContext
 
 from perry_assistant.bot.handlers.common import get_services
+from perry_assistant.bot.handlers.guards import require_admin
 from perry_assistant.bot.keyboards import build_absences_menu_keyboard
 
 
 DATE_MM_DD_RE = re.compile(r"^\d{2}-\d{2}$")
-
-
-def _is_admin(update: Update, context: CallbackContext) -> bool:
-    services = get_services(context)
-    user = update.effective_user
-    return bool(user and user.id == services.config.miron_id)
-
-
-async def _require_admin(update: Update, context: CallbackContext) -> bool:
-    if not update.message:
-        return False
-    if _is_admin(update, context):
-        return True
-    await update.message.reply_text("Admin only.")
-    return False
-
 
 def _group_absence_lines(items) -> list[str]:
     grouped: dict[str, list[str]] = defaultdict(list)
@@ -56,13 +41,8 @@ def _parse_excuse_groups(args: list[str]) -> list[tuple[str, list[str]]] | None:
         groups.append((date_text, subjects))
     return groups
 
-
+@require_admin
 async def absence(update: Update, context: CallbackContext) -> None:
-    if not update.message:
-        return
-    if not await _require_admin(update, context):
-        return
-
     services = get_services(context)
     if not context.args or len(context.args) < 2:
         await update.message.reply_text("Usage: /absence MM-DD subject1,subject2")
@@ -84,12 +64,8 @@ async def absence(update: Update, context: CallbackContext) -> None:
     await update.message.reply_text("Absences added:\n" + "\n".join(lines))
 
 
+@require_admin
 async def absences_today(update: Update, context: CallbackContext) -> None:
-    if not update.message:
-        return
-    if not await _require_admin(update, context):
-        return
-
     services = get_services(context)
     now = dt.datetime.now()
     excusable = services.absence_service.get_excusable_absences_today(now)
@@ -100,13 +76,8 @@ async def absences_today(update: Update, context: CallbackContext) -> None:
     lines = _group_absence_lines(excusable)
     await update.message.reply_text("Excusable today:\n" + "\n".join(lines))
 
-
+@require_admin
 async def absences_all(update: Update, context: CallbackContext) -> None:
-    if not update.message:
-        return
-    if not await _require_admin(update, context):
-        return
-
     services = get_services(context)
     unexcused = services.absence_service.get_unexcused_absences()
     if not unexcused:
@@ -116,13 +87,8 @@ async def absences_all(update: Update, context: CallbackContext) -> None:
     lines = _group_absence_lines(unexcused)
     await update.message.reply_text("Unexcused absences:\n" + "\n".join(lines))
 
-
+@require_admin
 async def absences_excused(update: Update, context: CallbackContext) -> None:
-    if not update.message:
-        return
-    if not await _require_admin(update, context):
-        return
-
     services = get_services(context)
     excused = services.absence_service.get_excused_absences()
     if not excused:
@@ -132,13 +98,8 @@ async def absences_excused(update: Update, context: CallbackContext) -> None:
     lines = _group_absence_lines(excused)
     await update.message.reply_text("Excused absences:\n" + "\n".join(lines))
 
-
+@require_admin
 async def absences_absent(update: Update, context: CallbackContext) -> None:
-    if not update.message:
-        return
-    if not await _require_admin(update, context):
-        return
-
     services = get_services(context)
     now = dt.datetime.now()
     timetable = services.absence_service.get_school_timetable()
@@ -156,13 +117,8 @@ async def absences_absent(update: Update, context: CallbackContext) -> None:
     lines = [f"- {item.subject}" for item in created]
     await update.message.reply_text(f"Absences added for today ({date_str}):\n" + "\n".join(lines))
 
-
+@require_admin
 async def excuse(update: Update, context: CallbackContext) -> None:
-    if not update.message:
-        return
-    if not await _require_admin(update, context):
-        return
-
     services = get_services(context)
     groups = _parse_excuse_groups(context.args)
     if groups is None:
@@ -181,9 +137,6 @@ async def excuse(update: Update, context: CallbackContext) -> None:
         await update.message.reply_text("No matching unexcused absence found.")
 
 
+@require_admin
 async def absences_menu(update: Update, context: CallbackContext) -> None:
-    if not update.message:
-        return
-    if not await _require_admin(update, context):
-        return
     await update.message.reply_text("OK", reply_markup=build_absences_menu_keyboard())

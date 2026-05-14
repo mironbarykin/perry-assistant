@@ -7,6 +7,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CallbackContext
 
 from perry_assistant.bot.handlers.common import get_services
+from perry_assistant.bot.handlers.guards import require_admin
 from perry_assistant.constants import BERLIN_TZ
 from perry_assistant.services.game_message_service import ParsedGameEvent
 
@@ -15,17 +16,11 @@ PICKER_STATE_KEY = "game_message_picker"
 PICKER_CALLBACK_PREFIX = "gmsg:"
 PICKER_TTL_HOURS = 6
 
-
+@require_admin 
 async def games(update: Update, context: CallbackContext) -> None:
-    if not update.message:
-        return
-
     services = get_services(context)
     user = update.effective_user
-    if not user or user.id != services.config.miron_id:
-        await update.message.reply_text("Admin only.")
-        return
-
+    
     _cleanup_picker_state(context.application.bot_data)
     events = services.game_message_service.list_upcoming_games(days=7)
     if not events:

@@ -1,7 +1,6 @@
 from perry_assistant.bot.keyboards import (
     build_absences_menu_keyboard,
     build_main_keyboard,
-    build_parent_keyboard,
     build_referee_menu_keyboard,
     build_schedule_keyboard,
 )
@@ -39,7 +38,7 @@ def test_main_keyboard_regular_user_contains_only_untis():
 
 
 def test_parent_keyboard_layout():
-    layout = _button_texts(build_parent_keyboard())
+    layout = _button_texts(build_main_keyboard(is_admin=False, is_parent=True))
     assert ["TODAY", "TOMORROW"] in layout
     assert ["THIS WEEKEND"] in layout
     assert ["OTHER DATE"] in layout

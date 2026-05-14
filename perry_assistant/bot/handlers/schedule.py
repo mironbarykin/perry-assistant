@@ -7,22 +7,18 @@ from telegram.ext import CallbackContext, ContextTypes, ConversationHandler
 from telegram.constants import ParseMode
 
 from perry_assistant.bot.handlers.common import get_services, button_handler, _require_admin_or_parent
-
+from perry_assistant.bot.handlers.guards import require_family, require_admin
 from perry_assistant.bot.keyboards import build_schedule_keyboard
 
 OTHER_DATE_STATE = 10
 
-
+# TODO: ! Don't display some events to parents, doesn't work! 
 def _is_admin_user(update: Update, admin_id: int) -> bool:
     user = update.effective_user
     return bool(user and user.id == admin_id)
 
-
+@require_family 
 async def this_weekend(update: Update, context: CallbackContext) -> None:
-    if not update.message:
-        return
-    if not await _require_admin_or_parent(update, context):
-        return
 
     services = get_services(context)
     is_admin = _is_admin_user(update, services.config.miron_id)
@@ -42,12 +38,8 @@ async def this_weekend(update: Update, context: CallbackContext) -> None:
     )
     await _reply_markdown(update, f"{sat_events}\n\n{sun_events}")
 
-
+@require_family 
 async def next_weekend(update: Update, context: CallbackContext) -> None:
-    if not update.message:
-        return
-    if not await _require_admin_or_parent(update, context):
-        return
 
     services = get_services(context)
     is_admin = _is_admin_user(update, services.config.miron_id)
@@ -68,56 +60,23 @@ async def next_weekend(update: Update, context: CallbackContext) -> None:
     await _reply_markdown(update, f"{sat_events}\n\n{sun_events}")
 
 
-async def other_weekend(update: Update, context: CallbackContext) -> None:
-    if not update.message:
-        return
-    if not await _require_admin_or_parent(update, context):
-        return
-    await update.message.reply_text(
-        "Please specify the date (feature not implemented yet).",
-        reply_markup=build_schedule_keyboard(),
-    )
-
-
+@require_family 
 async def today(update: Update, context: CallbackContext) -> None:
-    if not update.message:
-        return
-    if not await _require_admin_or_parent(update, context):
-        return
-
     services = get_services(context)
-    is_admin = _is_admin_user(update, services.config.miron_id)
-    await _reply_markdown(update, services.schedule_service.today_message(is_admin=is_admin))
+    await _reply_markdown(update, services.schedule_service.today_message(is_admin=_is_admin_user(update, services.config.miron_id)))
 
-
+@require_family 
 async def tomorrow(update: Update, context: CallbackContext) -> None:
-    if not update.message:
-        return
-    if not await _require_admin_or_parent(update, context):
-        return
-
     services = get_services(context)
-    is_admin = _is_admin_user(update, services.config.miron_id)
-    await _reply_markdown(update, services.schedule_service.tomorrow_message(is_admin=is_admin))
+    await _reply_markdown(update, services.schedule_service.tomorrow_message(is_admin=_is_admin_user(update, services.config.miron_id)))
 
-
+@require_family 
 async def weekend(update: Update, context: CallbackContext) -> None:
-    if not update.message:
-        return
-    if not await _require_admin_or_parent(update, context):
-        return
-
     services = get_services(context)
-    is_admin = _is_admin_user(update, services.config.miron_id)
-    await _reply_markdown(update, services.schedule_service.weekend_message(is_admin=is_admin))
+    await _reply_markdown(update, services.schedule_service.weekend_message(is_admin=_is_admin_user(update, services.config.miron_id)))
 
-
+@require_admin
 async def morning(update: Update, context: CallbackContext) -> None:
-    if not update.message:
-        return
-    if not await _require_admin_or_parent(update, context):
-        return
-
     services = get_services(context)
     current_coords, _ = services.weather_location_service.resolve_current_location(services.config.home_coords)
     location_city_label = services.weather_location_service.location_city_label(fallback="home")
@@ -169,7 +128,7 @@ async def send_morning_message_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     except Exception as exc:  # noqa: BLE001
         await context.bot.send_message(chat_id=services.config.miron_id, text=f"Uportal daily scheduling failed: {exc}")
 
-
+@require_family
 async def other_date_start(update: Update, context: CallbackContext) -> int:
     if not update.message:
         return ConversationHandler.END

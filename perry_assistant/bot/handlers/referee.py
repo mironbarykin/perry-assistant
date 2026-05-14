@@ -7,15 +7,14 @@ from telegram import Update
 from telegram.ext import CallbackContext, ContextTypes
 
 from perry_assistant.bot.handlers.common import get_services
+from perry_assistant.bot.handlers.guards import require_admin
 
-
+@require_admin
 async def emails(update: Update, context: CallbackContext) -> None:
-    if not update.message:
-        return
-    await update.message.reply_text("Scanning referee emails...")
+    await update.message.reply_text("👀 Scanning referee emails...")
     services = get_services(context)
     await services.referee_service.process_new_emails(context)
-    await update.message.reply_text("Email scan completed.")
+    await update.message.reply_text("📧 Scan completed.")
 
 
 async def process_basketball_emails_job(context: ContextTypes.DEFAULT_TYPE) -> None:

@@ -5,7 +5,6 @@ from telegram.ext import CallbackContext, ConversationHandler
 
 from perry_assistant.bot.keyboards import (
     build_main_keyboard,
-    build_parent_keyboard,
     build_referee_menu_keyboard,
     build_schedule_keyboard,
     build_tracker_menu_keyboard,

@@ -3,7 +3,8 @@ from __future__ import annotations
 from telegram import Update
 from telegram.ext import CallbackContext, ConversationHandler
 
-from perry_assistant.bot.keyboards import build_main_keyboard, build_parent_keyboard
+from perry_assistant.bot.handlers.guards import require_admin
+from perry_assistant.bot.keyboards import build_main_keyboard
 from perry_assistant.bot.handlers.common import get_services
 from perry_assistant.storage.json_store import read_json
 
@@ -13,14 +14,9 @@ PUBLISH_STATE = 200
 PUBLISH_TARGET_PARENTS = "parents"
 PUBLISH_TARGET_UNTIS = "untis"
 
-
+@require_admin
 async def parents(update: Update, context: CallbackContext) -> None:
-    if not update.message:
-        return
     services = get_services(context)
-    if update.effective_user.id != services.config.miron_id:
-        await update.message.reply_text("Admin only.")
-        return
 
     parent_ids = read_json(services.config.parents_file, [])
     if not parent_ids:
@@ -28,14 +24,9 @@ async def parents(update: Update, context: CallbackContext) -> None:
         return
     await update.message.reply_text("Parent subscribers:\n" + "\n".join(f"- {item}" for item in parent_ids))
 
-
+@require_admin
 async def published_start(update: Update, context: CallbackContext) -> int:
     if not update.message:
-        return ConversationHandler.END
-
-    services = get_services(context)
-    if update.effective_user.id != services.config.miron_id:
-        await update.message.reply_text("Admin only.")
         return ConversationHandler.END
 
     args = context.args or []
@@ -52,15 +43,12 @@ async def published_start(update: Update, context: CallbackContext) -> int:
     )
     return PUBLISH_STATE
 
-
+@require_admin
 async def published_send(update: Update, context: CallbackContext) -> int:
     if not update.message:
         return ConversationHandler.END
 
     services = get_services(context)
-    if update.effective_user.id != services.config.miron_id:
-        return ConversationHandler.END
-
     target = context.user_data.get("publish_target", PUBLISH_TARGET_PARENTS)
 
     if target == PUBLISH_TARGET_UNTIS:
@@ -82,7 +70,7 @@ async def published_send(update: Update, context: CallbackContext) -> int:
         if target == PUBLISH_TARGET_UNTIS:
             reply_markup = build_main_keyboard(is_admin=False, is_parent=False)
         else:
-            reply_markup = build_parent_keyboard()
+            reply_markup = build_main_keyboard(is_admin=False, is_parent=True)
         try:
             await context.bot.send_message(
                 chat_id=recipient_id,
@@ -96,7 +84,7 @@ async def published_send(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text(f"Published to {sent_count} {target} subscriber(s).")
     return ConversationHandler.END
 
-
+# TODO: ! Does not work apparently, check later...
 def build_parent_game_notification(games_with_travel: list[dict]) -> str:
     """
     Build a parent-friendly game schedule notification with travel information.
