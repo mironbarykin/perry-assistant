@@ -43,8 +43,8 @@ WHEN_LABELS = {
 }
 
 FAP_LOCATION_LABELS = {
-    "bedroom": "Bedroom",
-    "bathroom": "Bathroom",
+    "bedroom": "🛏️Bedroom",
+    "bathroom": "🚿Bathroom",
     "other": "Other",
 }
 
@@ -59,16 +59,17 @@ FAP_SOURCES_OPTIONS = {
 }
 
 SHOWER_LOCATION_LABELS = {
-    "home": "Home",
-    "school": "School",
-    "gym": "Gym",
+    "home": "🏠Home",
+    "school": "🏫School",
+    "gym": "🏋️Gym",
+    "swimming_pool": "🏊Swimming Pool",
     "other": "Other",
 }
 
 SHOWER_TEMPERATURE_LABELS = {
-    "cold": "Cold",
-    "warm": "Warm",
-    "contrast": "Contrast",
+    "cold": "❄️Cold",
+    "warm": "🔥Warm",
+    "contrast": "🌡️Contrast",
     "other": "Other",
 }
 
@@ -88,6 +89,8 @@ class TrackerState(IntEnum):
     INPUT_DURATION = 4
     CHOOSE_TEMPERATURE = 5
     CHOOSE_SOURCES = 7
+    INPUT_WHEN_TIME = 8
+    INPUT_WHEN_DATETIME = 9
 
 
 
@@ -181,6 +184,12 @@ async def dispatch_text(update: Update, context: CallbackContext) -> None:
         return
 
     state = _tracker_state(context)
+    if state == TrackerState.INPUT_WHEN_TIME.value:
+        await _input_when_time(update, context)
+        return
+    if state == TrackerState.INPUT_WHEN_DATETIME.value:
+        await _input_when_datetime(update, context)
+        return
     if state == TrackerState.INPUT_DURATION.value:
         await _input_duration(update, context)
         return
@@ -234,10 +243,81 @@ async def _choose_when(update: Update, context: CallbackContext) -> int:
     when_key = query.data.removeprefix("when_")
     data = _tracker_data(context)
     data["when"] = when_key
+    if when_key == "now":
+        now_local = dt.datetime.now(BERLIN_TZ)
+        data["happened_at_utc"] = now_local.astimezone(dt.UTC).isoformat()
+        await _delete_message(query.message)
+        return await _prompt_location_step(query.message, context)
+
+    if when_key == "today":
+        await _delete_message(query.message)
+        if query.message:
+            prompt = await query.message.reply_text(
+                "Send time in HH:MM (24h), for example 19:30.",
+            )
+            data["when_time_prompt_message"] = prompt
+        _set_tracker_state(context, TrackerState.INPUT_WHEN_TIME.value)
+        return TrackerState.INPUT_WHEN_TIME.value
+
+    if when_key == "other":
+        await _delete_message(query.message)
+        if query.message:
+            prompt = await query.message.reply_text(
+                "Send date and time in one message, e.g. 2026-05-15 19:30 or 15.05.2026 19:30.",
+            )
+            data["when_datetime_prompt_message"] = prompt
+        _set_tracker_state(context, TrackerState.INPUT_WHEN_DATETIME.value)
+        return TrackerState.INPUT_WHEN_DATETIME.value
+
     await _delete_message(query.message)
-    if query.message:
-        tracker_type = str(data.get("type", "shower"))
-        prompt = await query.message.reply_text(
+    return await _prompt_location_step(query.message, context)
+
+
+async def _input_when_time(update: Update, context: CallbackContext) -> int:
+    if not update.message:
+        return TrackerState.INPUT_WHEN_TIME.value
+    if _tracker_state(context) != TrackerState.INPUT_WHEN_TIME.value:
+        return TrackerState.INPUT_WHEN_TIME.value
+
+    raw = update.message.text.strip()
+    parsed_time = _parse_time_input(raw)
+    if parsed_time is None:
+        await update.message.reply_text("Invalid time. Use HH:MM (24h), for example 19:30.")
+        return TrackerState.INPUT_WHEN_TIME.value
+
+    now_local = dt.datetime.now(BERLIN_TZ)
+    happened_local = dt.datetime.combine(now_local.date(), parsed_time, tzinfo=BERLIN_TZ)
+    data = _tracker_data(context)
+    await _delete_message(data.pop("when_time_prompt_message", None))
+    data["happened_at_utc"] = happened_local.astimezone(dt.UTC).isoformat()
+    return await _prompt_location_step(update.message, context)
+
+
+async def _input_when_datetime(update: Update, context: CallbackContext) -> int:
+    if not update.message:
+        return TrackerState.INPUT_WHEN_DATETIME.value
+    if _tracker_state(context) != TrackerState.INPUT_WHEN_DATETIME.value:
+        return TrackerState.INPUT_WHEN_DATETIME.value
+
+    raw = update.message.text.strip()
+    happened_local = _parse_datetime_input(raw)
+    if happened_local is None:
+        await update.message.reply_text(
+            "Invalid date/time. Use one message like 2026-05-15 19:30 or 15.05.2026 19:30.",
+        )
+        return TrackerState.INPUT_WHEN_DATETIME.value
+
+    data = _tracker_data(context)
+    await _delete_message(data.pop("when_datetime_prompt_message", None))
+    data["happened_at_utc"] = happened_local.astimezone(dt.UTC).isoformat()
+    return await _prompt_location_step(update.message, context)
+
+
+async def _prompt_location_step(message: object | None, context: CallbackContext) -> int:
+    data = _tracker_data(context)
+    tracker_type = str(data.get("type", "shower"))
+    if message and hasattr(message, "reply_text"):
+        prompt = await message.reply_text(
             "Where?",
             reply_markup=_build_location_keyboard(tracker_type),
         )
@@ -391,6 +471,17 @@ async def _save_entry(update: Update, context: CallbackContext) -> None:
     data = _tracker_data(context)
     now_local = dt.datetime.now(BERLIN_TZ)
     now_utc = now_local.astimezone(dt.UTC)
+    happened_utc_raw = data.get("happened_at_utc")
+    if isinstance(happened_utc_raw, str):
+        try:
+            happened_utc = dt.datetime.fromisoformat(happened_utc_raw)
+            if happened_utc.tzinfo is None:
+                happened_utc = happened_utc.replace(tzinfo=dt.UTC)
+        except ValueError:
+            happened_utc = now_utc
+    else:
+        happened_utc = now_utc
+    happened_local = happened_utc.astimezone(BERLIN_TZ)
     tracker_type = str(data.get("type", "shower"))
     products = _selected_products(data)
 
@@ -401,7 +492,7 @@ async def _save_entry(update: Update, context: CallbackContext) -> None:
         temperature_label = SHOWER_TEMPERATURE_LABELS.get(temperature_key, "")
         row = {
             "captured_at_utc": now_utc.isoformat(),
-            "happened_at_utc": now_utc.isoformat(),
+            "happened_at_utc": happened_utc.isoformat(),
             "duration_min": str(int(data.get("duration_min", 0))),
             "location_label": location_label,
             "temperature_label": temperature_label,
@@ -413,7 +504,7 @@ async def _save_entry(update: Update, context: CallbackContext) -> None:
         location_label = FAP_LOCATION_LABELS.get(location_key, location_key.title())
         row = {
             "captured_at_utc": now_utc.isoformat(),
-            "happened_at_utc": now_utc.isoformat(),
+            "happened_at_utc": happened_utc.isoformat(),
             "duration_min": str(int(data.get("duration_min", 0))),
             "location_label": location_label,
             "sources_json": json.dumps(products, ensure_ascii=False),
@@ -441,7 +532,7 @@ async def _save_entry(update: Update, context: CallbackContext) -> None:
             lines = [
                 f"✅ Logged - Shower",
                 f"📍 {location_label}",
-                f"⏰ {now_local.strftime('%H:%M')}",
+                f"⏰ {happened_local.strftime('%Y-%m-%d %H:%M')}",
                 f"⌛ {row['duration_min']} min",
             ]
             if temperature_label:
@@ -453,7 +544,7 @@ async def _save_entry(update: Update, context: CallbackContext) -> None:
             lines = [
                 f"✅ Logged - Fap",
                 f"📍 {location_label}",
-                f"⏰ {now_local.strftime('%H:%M')}",
+                f"⏰ {happened_local.strftime('%Y-%m-%d %H:%M')}",
                 f"⌛ {row['duration_min']} min",
             ]
             if products:
@@ -486,7 +577,7 @@ def _build_location_keyboard(tracker_type: str = "shower") -> InlineKeyboardMark
         keys = ["bedroom", "bathroom", "other"]
     else:
         locations = SHOWER_LOCATION_LABELS
-        keys = ["home", "school", "gym", "other"]
+        keys = ["home", "school", "gym", "swimming_pool", "other"]
     
     rows = [[InlineKeyboardButton(locations[key], callback_data=f"loc_{key}")] for key in keys]
     return InlineKeyboardMarkup(rows)
@@ -531,4 +622,25 @@ async def _delete_message(message: object | None) -> None:
         await message.delete()
     except Exception:  # noqa: BLE001
         logger.debug("Could not delete tracker message", exc_info=True)
+
+
+def _parse_time_input(value: str) -> dt.time | None:
+    try:
+        return dt.datetime.strptime(value, "%H:%M").time()
+    except ValueError:
+        return None
+
+
+def _parse_datetime_input(value: str) -> dt.datetime | None:
+    formats = (
+        "%Y-%m-%d %H:%M",
+        "%d.%m.%Y %H:%M",
+    )
+    for fmt in formats:
+        try:
+            naive = dt.datetime.strptime(value, fmt)
+            return naive.replace(tzinfo=BERLIN_TZ)
+        except ValueError:
+            continue
+    return None
 
