@@ -7,6 +7,7 @@ from telegram.ext import CallbackContext
 
 from perry_assistant.bot.handlers.common import get_services
 from perry_assistant.bot.handlers.guards import require_admin
+from perry_assistant.bot.handlers.helpers import parse_iso_datetime
 from perry_assistant.bot.keyboards import build_main_keyboard
 from perry_assistant.constants import BERLIN_TZ
 
@@ -64,10 +65,7 @@ async def receive_weather_location(update: Update, context: CallbackContext) -> 
 
 
 def _format_timestamp(raw: str) -> str:
-    try:
-        parsed = dt.datetime.fromisoformat(raw)
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=dt.UTC)
-        return parsed.astimezone(BERLIN_TZ).strftime("%Y-%m-%d %H:%M:%S %Z")
-    except ValueError:
+    parsed = parse_iso_datetime(raw, default_tz=dt.UTC)
+    if parsed is None:
         return raw
+    return parsed.astimezone(BERLIN_TZ).strftime("%Y-%m-%d %H:%M:%S %Z")

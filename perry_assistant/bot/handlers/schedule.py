@@ -8,6 +8,7 @@ from telegram.constants import ParseMode
 
 from perry_assistant.bot.handlers.common import get_services, button_handler, _require_admin_or_parent
 from perry_assistant.bot.handlers.guards import require_family, require_admin
+from perry_assistant.bot.handlers.helpers import parse_date_flexible
 from perry_assistant.bot.keyboards import build_schedule_keyboard
 
 OTHER_DATE_STATE = 10
@@ -191,12 +192,10 @@ async def other_date_input(update: Update, context: CallbackContext) -> int:
 
 
 def _parse_date(text: str) -> dt.date | None:
-    for fmt in ("%d.%m.%Y", "%d/%m/%Y", "%Y-%m-%d"):
-        try:
-            return dt.datetime.strptime(text, fmt).date()
-        except ValueError:
-            continue
-    return None
+    return parse_date_flexible(
+        text,
+        formats=("%d.%m.%Y", "%d/%m/%Y", "%Y-%m-%d"),
+    )
 
 
 async def cancel_other_date(update: Update, context: CallbackContext) -> int:

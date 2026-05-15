@@ -11,6 +11,11 @@ from telegram.ext import CallbackContext
 
 from perry_assistant.bot.handlers.common import get_services
 from perry_assistant.bot.handlers.guards import require_admin
+from perry_assistant.bot.handlers.helpers import (
+    parse_iso_datetime,
+    parse_local_datetime,
+    parse_time_hhmm,
+)
 from perry_assistant.constants import BERLIN_TZ
 
 
@@ -280,7 +285,7 @@ async def _input_when_time(update: Update, context: CallbackContext) -> int:
         return TrackerState.INPUT_WHEN_TIME.value
 
     raw = update.message.text.strip()
-    parsed_time = _parse_time_input(raw)
+    parsed_time = parse_time_hhmm(raw)
     if parsed_time is None:
         await update.message.reply_text("Invalid time. Use HH:MM (24h), for example 19:30.")
         return TrackerState.INPUT_WHEN_TIME.value
@@ -300,7 +305,14 @@ async def _input_when_datetime(update: Update, context: CallbackContext) -> int:
         return TrackerState.INPUT_WHEN_DATETIME.value
 
     raw = update.message.text.strip()
-    happened_local = _parse_datetime_input(raw)
+    happened_local = parse_local_datetime(
+        raw,
+        BERLIN_TZ,
+        formats=(
+            "%Y-%m-%d %H:%M",
+            "%d.%m.%Y %H:%M",
+        ),
+    )
     if happened_local is None:
         await update.message.reply_text(
             "Invalid date/time. Use one message like 2026-05-15 19:30 or 15.05.2026 19:30.",
@@ -473,12 +485,7 @@ async def _save_entry(update: Update, context: CallbackContext) -> None:
     now_utc = now_local.astimezone(dt.UTC)
     happened_utc_raw = data.get("happened_at_utc")
     if isinstance(happened_utc_raw, str):
-        try:
-            happened_utc = dt.datetime.fromisoformat(happened_utc_raw)
-            if happened_utc.tzinfo is None:
-                happened_utc = happened_utc.replace(tzinfo=dt.UTC)
-        except ValueError:
-            happened_utc = now_utc
+        happened_utc = parse_iso_datetime(happened_utc_raw, default_tz=dt.UTC) or now_utc
     else:
         happened_utc = now_utc
     happened_local = happened_utc.astimezone(BERLIN_TZ)
@@ -622,25 +629,4 @@ async def _delete_message(message: object | None) -> None:
         await message.delete()
     except Exception:  # noqa: BLE001
         logger.debug("Could not delete tracker message", exc_info=True)
-
-
-def _parse_time_input(value: str) -> dt.time | None:
-    try:
-        return dt.datetime.strptime(value, "%H:%M").time()
-    except ValueError:
-        return None
-
-
-def _parse_datetime_input(value: str) -> dt.datetime | None:
-    formats = (
-        "%Y-%m-%d %H:%M",
-        "%d.%m.%Y %H:%M",
-    )
-    for fmt in formats:
-        try:
-            naive = dt.datetime.strptime(value, fmt)
-            return naive.replace(tzinfo=BERLIN_TZ)
-        except ValueError:
-            continue
-    return None
 

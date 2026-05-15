@@ -8,6 +8,7 @@ from telegram.ext import CallbackContext
 
 from perry_assistant.bot.handlers.common import get_services
 from perry_assistant.bot.handlers.guards import require_admin
+from perry_assistant.bot.handlers.helpers import parse_iso_datetime
 from perry_assistant.constants import BERLIN_TZ
 from perry_assistant.services.game_message_service import ParsedGameEvent
 
@@ -128,11 +129,8 @@ def _cleanup_picker_state(bot_data: dict) -> None:
         if not isinstance(created_raw, str):
             state.pop(key, None)
             continue
-        try:
-            created = dt.datetime.fromisoformat(created_raw)
-            if created.tzinfo is None:
-                created = created.replace(tzinfo=dt.UTC)
-        except ValueError:
+        created = parse_iso_datetime(created_raw, default_tz=dt.UTC)
+        if created is None:
             state.pop(key, None)
             continue
         if created < cutoff:
