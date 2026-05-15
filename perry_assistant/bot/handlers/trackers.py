@@ -90,10 +90,6 @@ class TrackerState(IntEnum):
     CHOOSE_SOURCES = 7
 
 
-def _is_admin(update: Update, admin_id: int) -> bool:
-    user = update.effective_user
-    return bool(user and user.id == admin_id)
-
 
 def _tracker_data(context: CallbackContext) -> dict[str, object]:
     if context.user_data is None:
@@ -179,6 +175,7 @@ async def cancel_tracker(update: Update, context: CallbackContext) -> int:
     return TrackerState.CHOOSE_WHEN.value
 
 
+@require_admin
 async def dispatch_text(update: Update, context: CallbackContext) -> None:
     if not update.message:
         return
@@ -205,6 +202,7 @@ async def dispatch_text(update: Update, context: CallbackContext) -> None:
     await button_handler(update, context)
 
 
+@require_admin
 async def dispatch_callback(update: Update, context: CallbackContext) -> None:
     query = update.callback_query
     if not query or not query.data:
@@ -226,11 +224,6 @@ async def dispatch_callback(update: Update, context: CallbackContext) -> None:
 async def _choose_when(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
     if not query or not query.data:
-        return TrackerState.CHOOSE_WHEN.value
-
-    services = get_services(context)
-    if update.effective_user and not _is_admin(update, services.config.miron_id):
-        await query.answer("Admin only.", show_alert=True)
         return TrackerState.CHOOSE_WHEN.value
 
     if _tracker_state(context) != TrackerState.CHOOSE_WHEN.value:
@@ -258,11 +251,6 @@ async def _choose_location(update: Update, context: CallbackContext) -> int:
     if not query or not query.data:
         return TrackerState.CHOOSE_LOCATION.value
 
-    services = get_services(context)
-    if update.effective_user and not _is_admin(update, services.config.miron_id):
-        await query.answer("Admin only.", show_alert=True)
-        return TrackerState.CHOOSE_LOCATION.value
-
     if _tracker_state(context) != TrackerState.CHOOSE_LOCATION.value:
         await query.answer()
         return TrackerState.CHOOSE_LOCATION.value
@@ -281,12 +269,6 @@ async def _choose_location(update: Update, context: CallbackContext) -> int:
 
 async def _input_duration(update: Update, context: CallbackContext) -> int:
     if not update.message or not update.effective_user:
-        return TrackerState.INPUT_DURATION.value
-
-    services = get_services(context)
-    if not _is_admin(update, services.config.miron_id):
-        await update.message.reply_text("Admin only.")
-        await _clear_tracker(context)
         return TrackerState.INPUT_DURATION.value
 
     if _tracker_state(context) != TrackerState.INPUT_DURATION.value:
@@ -332,11 +314,6 @@ async def _choose_temperature(update: Update, context: CallbackContext) -> int:
     if not query or not query.data:
         return TrackerState.CHOOSE_TEMPERATURE.value
 
-    services = get_services(context)
-    if update.effective_user and not _is_admin(update, services.config.miron_id):
-        await query.answer("Admin only.", show_alert=True)
-        return TrackerState.CHOOSE_TEMPERATURE.value
-
     if _tracker_state(context) != TrackerState.CHOOSE_TEMPERATURE.value:
         await query.answer()
         return TrackerState.CHOOSE_TEMPERATURE.value
@@ -364,11 +341,6 @@ async def _choose_temperature(update: Update, context: CallbackContext) -> int:
 async def _choose_sources(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
     if not query or not query.data:
-        return TrackerState.CHOOSE_SOURCES.value
-
-    services = get_services(context)
-    if update.effective_user and not _is_admin(update, services.config.miron_id):
-        await query.answer("Admin only.", show_alert=True)
         return TrackerState.CHOOSE_SOURCES.value
 
     if _tracker_state(context) != TrackerState.CHOOSE_SOURCES.value:

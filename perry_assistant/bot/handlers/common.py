@@ -44,6 +44,17 @@ async def _require_admin_or_parent(update: Update, context: CallbackContext) -> 
     return False
 
 
+async def _require_admin(update: Update, context: CallbackContext) -> bool:
+    """Return True if user is admin; reply with error and return False otherwise."""
+    if not update.message or not update.effective_user:
+        return False
+    services = get_services(context)
+    if _is_admin(update.effective_user.id, services):
+        return True
+    await update.message.reply_text("Access denied. Admin only.")
+    return False
+
+
 async def _require_not_parent(update: Update, context: CallbackContext) -> bool:
     """Return True for admin and non-parent users; block parents."""
     if not update.message or not update.effective_user:
@@ -168,10 +179,10 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
         "GAMES",
         "TRACKER",
         "SHOWER",
-        "FAP"
-    } and not is_admin:
-        await update.message.reply_text("Access denied. Admin only.")
-        return
+        "FAP",
+    }:
+        if not await _require_admin(update, context):
+            return
 
     # Non-untis buttons require admin or parent
     if text in {
@@ -181,14 +192,14 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
         "NEXT WEEKEND",
         "OTHER DATE",
         "BACK",
-    } and not is_admin and not is_parent:
-        await update.message.reply_text("Access denied.")
-        return
+    }:
+        if not await _require_admin_or_parent(update, context):
+            return
 
     # Untis buttons are not available for parents
-    if text == "UNTIS" and is_parent:
-        await update.message.reply_text("This feature is not available.")
-        return
+    if text == "UNTIS":
+        if not await _require_not_parent(update, context):
+            return
 
     if text == "ABSENCES":
         from perry_assistant.bot.handlers.absences import absences_menu

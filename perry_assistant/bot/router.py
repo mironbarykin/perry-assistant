@@ -16,7 +16,19 @@ from telegram.ext import (
 
 from perry_assistant.constants import BERLIN_TZ
 from perry_assistant.bot.error_handler import error_handler
-from perry_assistant.bot.handlers import trackers, absences, admin, common, game_messages, referee, schedule, stats, uportal, weather
+from perry_assistant.bot.handlers import (
+    trackers,
+    absences,
+    admin,
+    common,
+    game_messages,
+    referee,
+    auth,
+    schedule,
+    stats,
+    uportal,
+    weather,
+)
 from perry_assistant.bot.handlers import untis_timetable
 from perry_assistant.domain.types import AppServices
 
@@ -93,7 +105,7 @@ def build_application(services: AppServices) -> Application:
     )
     app.add_handler(untis_setup_conv)
 
-    app.add_handler(MessageHandler(filters.Regex(r"^4/.*"), referee.handle_auth_code))
+    app.add_handler(MessageHandler(filters.Regex(r"^4/.*"), auth.handle_auth_code))
     app.add_handler(MessageHandler(filters.LOCATION, weather.receive_weather_location))
     app.add_handler(CallbackQueryHandler(trackers.dispatch_callback, pattern=r"^(when_|loc_|temp_|prod_)") )
     app.add_handler(CallbackQueryHandler(uportal.ignore_uportal_game, pattern=r"^uio:"))

@@ -47,6 +47,7 @@ async def games(update: Update, context: CallbackContext) -> None:
     await update.message.reply_text("Choose a game to generate draft messages:", reply_markup=keyboard)
 
 
+@require_admin
 async def select_game(update: Update, context: CallbackContext) -> None:
     query = update.callback_query
     if not query:
@@ -54,9 +55,6 @@ async def select_game(update: Update, context: CallbackContext) -> None:
 
     services = get_services(context)
     user = update.effective_user
-    if not user or user.id != services.config.miron_id:
-        await query.answer("Admin only.", show_alert=True)
-        return
 
     data = query.data or ""
     if not data.startswith(PICKER_CALLBACK_PREFIX):

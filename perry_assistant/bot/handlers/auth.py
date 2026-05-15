@@ -3,6 +3,7 @@ from telegram.ext import CallbackContext, ContextTypes
 import pickle
 from google_auth_oauthlib.flow import Flow
 from perry_assistant.bot.handlers.common import get_services
+from perry_assistant.bot.handlers.guards import require_admin
 
 async def send_auth_link_to_admin(context: ContextTypes.DEFAULT_TYPE, reason: str) -> None:
     services = context.application.bot_data["services"]
@@ -26,15 +27,13 @@ async def send_auth_link_to_admin(context: ContextTypes.DEFAULT_TYPE, reason: st
     )
 
 
+@require_admin
 async def handle_auth_code(update: Update, context: CallbackContext) -> None:
     if not update.message:
         return
 
-    services = get_services(context)
-    if update.effective_user.id != services.config.miron_id:
-        return
-
     code = update.message.text.strip()
+    services = get_services(context)
     pending = context.application.bot_data.get("pending_auth")
     if not pending or not pending.get("awaiting_code"):
         return
