@@ -258,7 +258,7 @@ async def _choose_when(update: Update, context: CallbackContext) -> int:
         await _delete_message(query.message)
         if query.message:
             prompt = await query.message.reply_text(
-                "Send time in HH:MM (24h), for example 19:30.",
+                "Send time in HH:MM (24h) or HHMM, for example 19:30 or 1930.",
             )
             data["when_time_prompt_message"] = prompt
         _set_tracker_state(context, TrackerState.INPUT_WHEN_TIME.value)
@@ -287,13 +287,14 @@ async def _input_when_time(update: Update, context: CallbackContext) -> int:
     raw = update.message.text.strip()
     parsed_time = parse_time_hhmm(raw)
     if parsed_time is None:
-        await update.message.reply_text("Invalid time. Use HH:MM (24h), for example 19:30.")
+        await update.message.reply_text("Invalid time. Use HH:MM (24h) or HHMM, for example 19:30 or 1930.")
         return TrackerState.INPUT_WHEN_TIME.value
 
     now_local = dt.datetime.now(BERLIN_TZ)
     happened_local = dt.datetime.combine(now_local.date(), parsed_time, tzinfo=BERLIN_TZ)
     data = _tracker_data(context)
     await _delete_message(data.pop("when_time_prompt_message", None))
+    await _delete_message(update.message)
     data["happened_at_utc"] = happened_local.astimezone(dt.UTC).isoformat()
     return await _prompt_location_step(update.message, context)
 
@@ -321,6 +322,7 @@ async def _input_when_datetime(update: Update, context: CallbackContext) -> int:
 
     data = _tracker_data(context)
     await _delete_message(data.pop("when_datetime_prompt_message", None))
+    await _delete_message(update.message)
     data["happened_at_utc"] = happened_local.astimezone(dt.UTC).isoformat()
     return await _prompt_location_step(update.message, context)
 
@@ -378,6 +380,7 @@ async def _input_duration(update: Update, context: CallbackContext) -> int:
 
     data = _tracker_data(context)
     await _delete_message(data.pop("duration_prompt_message", None))
+    await _delete_message(update.message)
     data["duration_min"] = duration_min
     tracker_type = str(data.get("type", "shower"))
 

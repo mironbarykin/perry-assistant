@@ -6,6 +6,8 @@ import datetime as dt
 def parse_time_hhmm(value: str) -> dt.time | None:
     raw = value.strip()
     try:
+        if len(raw) != 5 or raw[2] != ":":
+            raw = raw[:2] + ":" + raw[2:]
         return dt.datetime.strptime(raw, "%H:%M").time()
     except ValueError:
         return None
