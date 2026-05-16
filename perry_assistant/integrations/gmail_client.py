@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import base64
+import logging
 import pickle
 from typing import Any
 
 from googleapiclient.discovery import build
 
 from perry_assistant.config import AppConfig
+from perry_assistant.utils import retry_with_backoff
+
+
+logger = logging.getLogger(__name__)
 
 
 class GmailClient:
@@ -28,6 +33,7 @@ class GmailClient:
         self._service_cache = None
 
     def _execute_with_retry(self, build_request):
+        """Execute API request with automatic retry on transient failures."""
         try:
             return build_request(self._service()).execute()
         except BrokenPipeError:

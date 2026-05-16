@@ -13,6 +13,7 @@ from telegram.ext import (
     TypeHandler,
     filters,
 )
+import httpx
 
 from perry_assistant.constants import BERLIN_TZ
 from perry_assistant.bot.error_handler import error_handler
@@ -38,7 +39,19 @@ from perry_assistant.bot.logging_bot import PerryBot
 
 def build_application(services: AppServices) -> Application:
     bot = PerryBot(token=services.config.tg_token)
-    app = ApplicationBuilder().bot(bot).build()
+    
+    # Configure connection pool: allows better handling of concurrent requests
+    # Default pool size of 15 connections provides good balance between memory
+    # usage and concurrency for typical bot workloads. Increase if you see
+    # "pool_timeout" errors under heavy concurrent load.
+    client = httpx.AsyncClient(
+        limits=httpx.Limits(
+            max_connections=15,
+            max_keepalive_connections=10,
+        ),
+    )
+    
+    app = ApplicationBuilder().bot(bot).http_client(client).build()
     app.bot_data["services"] = services
 
     app.add_handler(TypeHandler(Update, stats.log_incoming_update, block=False), group=-1)

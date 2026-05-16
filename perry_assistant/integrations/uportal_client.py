@@ -11,6 +11,11 @@ from perry_assistant.config import AppConfig
 from perry_assistant.domain.models import UportalGame
 from perry_assistant.storage.json_store import write_json
 
+# Note: UportalClient uses synchronous requests library.
+# Network calls have built-in timeout (30s) but no automatic exponential backoff retry.
+# For production deployments with unreliable networks, consider adding the
+# retry_with_backoff decorator from utils.py or migrating to async httpx client.
+
 DATE_RE = re.compile(r"(\d{2}\.\d{2}\.\d{4})")
 TIME_RE = re.compile(r"(\d{1,2}:\d{2})")
 DIST_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*km", re.IGNORECASE)

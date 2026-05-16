@@ -66,6 +66,8 @@ class WeatherClient:
         if cached and cached[0] > now:
             return cached[1]
 
+        # Note: For sync requests (requests library), consider migration to httpx
+        # for proper async retry support via utils.retry_with_backoff decorator
         response = self._session.get(
             BRIGHTSKY_WEATHER_URL,
             params={

@@ -64,4 +64,10 @@ def build_services() -> AppServices:
 def run() -> None:
     services = build_services()
     app = build_application(services)
-    app.run_polling()
+    
+    # Polling timeout: 25 seconds (slightly less than default 30s).
+    # Lower timeout enables faster recovery from network issues and API outages.
+    # Increase to 30+ if you experience excessive reconnection overhead in stable networks.
+    # See: https://docs.python-telegram-bot.org/en/stable/telegram.ext.Application.html#run-polling
+    app.run_polling(read_timeout=25, write_timeout=25, connect_timeout=20, pool_timeout=20)
+
