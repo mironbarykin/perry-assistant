@@ -20,6 +20,7 @@ _LOOKAHEAD_DAYS = 10
 _SCHOOL_GAP_MINUTES = 60
 _DOUBLE_LESSON_GAP_MINUTES = 10
 _SCHOOL_SUMMARY = "🏫 School"
+_IGNORED_SUBJECTS = {"R", 'Nach'}
 
 
 def _period_key(period: UntisPeriod) -> str:
@@ -38,24 +39,22 @@ def _periods_equal(a: UntisPeriod, b: UntisPeriod) -> bool:
         and a.ls_text == b.ls_text
         and a.info == b.info
         and a.lesson_count == b.lesson_count
+        and a.period_type == b.period_type
     )
 
 
 def _is_exam_period(period: UntisPeriod) -> bool:
-    text = (period.subject or "").lower()
-    return any(
-        token in text
-        for token in (
-            "klausur",
-            "exam",
-            "prüfung",
-            "pruefung",
-            "test",
-            "schulaufgabe",
-            "arbeit",
-            "sa",
-        )
-    )
+    """Detect if a period is an exam based on webuntis period type."""
+    # The webuntis API period.type returns "ex" for examinations
+    return period.period_type == "ex"
+
+
+def _is_ignored_subject(period: UntisPeriod) -> bool:
+    """Check if period subject is in the ignored subjects list."""
+    if not period.subject:
+        return False
+    subject_code = period.subject.split()[0]
+    return subject_code in _IGNORED_SUBJECTS
 
 
 def _periods_by_date(periods: list[UntisPeriod]) -> dict[str, list[UntisPeriod]]:
@@ -578,22 +577,25 @@ class UntisService:
         date_str: str,
     ) -> list[dict]:
         '''
-        For Miron: merge consecutive periods (with <=60-minute gap) into single events.
+        For Miron: merge consecutive regular lesson periods (with <=60-minute gap) into single events.
+        Excludes ignored subjects (R).
         Returns a list of dicts with 'start', 'end', 'summary', 'description'.
         '''
         day_periods = sorted(
-            [p for p in periods if p.date == date_str and p.code != "cancelled"],
+            [p for p in periods if (
+                p.date == date_str and
+                p.code != "cancelled" and
+                not _is_ignored_subject(p)
+            )],
             key=lambda p: p.start_time,
         )
         if not day_periods:
             return []
 
-        # Merge consecutive / small-gap blocks
         events = []
         block = [day_periods[0]]
         for p in day_periods[1:]:
             prev = block[-1]
-            # Treat as continuous if gap is at most 60 minutes
             gap_minutes = _time_gap_minutes(prev.end_time, p.start_time)
             if gap_minutes <= _SCHOOL_GAP_MINUTES:
                 block.append(p)
@@ -609,12 +611,16 @@ class UntisService:
         date_str: str,
     ) -> list[dict]:
         '''
-        For Michi: merge consecutive same-subject periods (double periods).
+        For Michi: merge consecutive same-subject regular lesson periods (double periods).
+        Excludes ignored subjects.
         Returns list of dicts with 'start', 'end', 'summary', 'description'.
         '''
-
         day_periods = sorted(
-            [p for p in periods if p.date == date_str and p.code != "cancelled"],
+            [p for p in periods if (
+                p.date == date_str and
+                p.code != "cancelled" and
+                not _is_ignored_subject(p)
+            )],
             key=lambda p: p.start_time,
         )
         if not day_periods:
@@ -814,7 +820,7 @@ def _event_key(summary: str, start_dt: dt.datetime, end_dt: dt.datetime) -> str:
 def _subjects_by_date(periods: list[UntisPeriod]) -> dict[str, set[str]]:
     result: dict[str, set[str]] = {}
     for p in periods:
-        if p.code == "cancelled":
+        if p.code == "cancelled" or _is_ignored_subject(p):
             continue
         result.setdefault(p.date, set()).add(p.subject or "Schule")
     return result
@@ -824,7 +830,7 @@ def _school_windows_by_date(periods: list[UntisPeriod]) -> dict[str, tuple[dt.da
     windows: dict[str, tuple[dt.datetime, dt.datetime]] = {}
     grouped: dict[str, list[UntisPeriod]] = {}
     for p in periods:
-        if p.code == "cancelled":
+        if p.code == "cancelled" or _is_ignored_subject(p):
             continue
         grouped.setdefault(p.date, []).append(p)
     for date_str, items in grouped.items():
@@ -862,9 +868,11 @@ def _michi_subject(block: list[UntisPeriod]) -> str:
         'R': 'Russisch',
         "MU": "Musik",
         "KU": "Kunst",
-        'EK': 'Erdkunde'
+        'EK': 'Erdkunde',
+        'Nach': 'Nachscreiben'
     }
-    return lessons[block[0].subject.split()[0]] or "Schule"
+
+    return lessons.get(block[0].subject.split()[0], block[0].subject)
 
 
 def _time_gap_minutes(end_time: str, start_time: str) -> int:

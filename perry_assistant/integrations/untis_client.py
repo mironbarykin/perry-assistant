@@ -56,6 +56,13 @@ def _period_to_model(period, subject_map: dict[int, str], room_map: dict[int, st
     info_val = _get_info(period)
     code = _derive_status_code(raw_code, subst_text)
 
+    # Extract period type (ex for exam, ls for lesson, etc.)
+    period_type = None
+    try:
+        period_type = period.type if hasattr(period, 'type') else _get_raw_value(period, "lstype")
+    except Exception:
+        pass
+
     start_dt: dt.datetime = period.start
     end_dt: dt.datetime = period.end
     date_str = _fmt_date(start_dt.date())
@@ -75,6 +82,7 @@ def _period_to_model(period, subject_map: dict[int, str], room_map: dict[int, st
         subst_text=subst_text or None,
         ls_text=ls_text_val or None,
         info=info_val or None,
+        period_type=period_type or None,
     )
 
 
