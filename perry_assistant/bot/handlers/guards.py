@@ -40,7 +40,17 @@ async def _deny(update: Update, text: str, alert: bool = False) -> None:
 
     message = _response_message(update)
     if message:
-        await message.reply_text(text)
+        try:
+            await message.reply_text(text)
+            return
+        except Exception:
+            pass
+
+    try:
+        if hasattr(update, "effective_chat") and update.effective_chat:
+            await update.effective_chat.send_message(text)
+    except Exception:
+        pass
 
 
 def _is_admin(update: Update, context: CallbackContext) -> bool:

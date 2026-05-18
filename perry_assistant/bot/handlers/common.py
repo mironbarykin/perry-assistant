@@ -187,6 +187,7 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
     # Non-untis buttons require admin or parent
     if text in {
         "TODAY",
+        "TOMORROW",
         "SCHEDULE",
         "THIS WEEKEND",
         "NEXT WEEKEND",

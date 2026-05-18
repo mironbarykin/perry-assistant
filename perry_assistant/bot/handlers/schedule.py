@@ -7,7 +7,7 @@ from telegram.ext import CallbackContext, ContextTypes, ConversationHandler
 from telegram.constants import ParseMode
 
 from perry_assistant.bot.handlers.common import get_services, button_handler, _require_admin_or_parent
-from perry_assistant.bot.handlers.guards import require_family, require_admin
+from perry_assistant.bot.handlers.guards import require_admin
 from perry_assistant.bot.handlers.helpers import parse_date_flexible
 from perry_assistant.bot.keyboards import build_schedule_keyboard
 
@@ -18,7 +18,6 @@ def _is_admin_user(update: Update, admin_id: int) -> bool:
     user = update.effective_user
     return bool(user and user.id == admin_id)
 
-@require_family 
 async def this_weekend(update: Update, context: CallbackContext) -> None:
 
     services = get_services(context)
@@ -39,7 +38,6 @@ async def this_weekend(update: Update, context: CallbackContext) -> None:
     )
     await _reply_markdown(update, f"{sat_events}\n\n{sun_events}")
 
-@require_family 
 async def next_weekend(update: Update, context: CallbackContext) -> None:
 
     services = get_services(context)
@@ -61,17 +59,14 @@ async def next_weekend(update: Update, context: CallbackContext) -> None:
     await _reply_markdown(update, f"{sat_events}\n\n{sun_events}")
 
 
-@require_family 
 async def today(update: Update, context: CallbackContext) -> None:
     services = get_services(context)
     await _reply_markdown(update, services.schedule_service.today_message(is_admin=_is_admin_user(update, services.config.miron_id)))
 
-@require_family 
 async def tomorrow(update: Update, context: CallbackContext) -> None:
     services = get_services(context)
     await _reply_markdown(update, services.schedule_service.tomorrow_message(is_admin=_is_admin_user(update, services.config.miron_id)))
 
-@require_family 
 async def weekend(update: Update, context: CallbackContext) -> None:
     services = get_services(context)
     await _reply_markdown(update, services.schedule_service.weekend_message(is_admin=_is_admin_user(update, services.config.miron_id)))
@@ -129,7 +124,6 @@ async def send_morning_message_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     except Exception as exc:  # noqa: BLE001
         await context.bot.send_message(chat_id=services.config.miron_id, text=f"Uportal daily scheduling failed: {exc}")
 
-@require_family
 async def other_date_start(update: Update, context: CallbackContext) -> int:
     if not update.message:
         return ConversationHandler.END
