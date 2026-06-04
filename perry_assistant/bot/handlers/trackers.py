@@ -10,7 +10,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CallbackContext
 
 from perry_assistant.bot.handlers.common import get_services
-from perry_assistant.bot.handlers.guards import require_admin
+from perry_assistant.bot.handlers.guards import require_admin, require_family
 from perry_assistant.bot.handlers.helpers import (
     parse_iso_datetime,
     parse_local_datetime,
@@ -183,7 +183,7 @@ async def cancel_tracker(update: Update, context: CallbackContext) -> int:
     return TrackerState.CHOOSE_WHEN.value
 
 
-@require_admin
+@require_family
 async def dispatch_text(update: Update, context: CallbackContext) -> None:
     if not update.message:
         return
@@ -216,7 +216,7 @@ async def dispatch_text(update: Update, context: CallbackContext) -> None:
     await button_handler(update, context)
 
 
-@require_admin
+@require_family
 async def dispatch_callback(update: Update, context: CallbackContext) -> None:
     query = update.callback_query
     if not query or not query.data:
