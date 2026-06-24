@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 _LOOKAHEAD_DAYS = 10
 _SCHOOL_GAP_MINUTES = 60
 _DOUBLE_LESSON_GAP_MINUTES = 10
+_KURZSTUNDEN_MINUTES = 30
 _SCHOOL_SUMMARY = "🏫 School"
 _IGNORED_SUBJECTS = {"R", 'Nach'}
 
@@ -46,7 +47,12 @@ def _periods_equal(a: UntisPeriod, b: UntisPeriod) -> bool:
 def _is_exam_period(period: UntisPeriod) -> bool:
     """Detect if a period is an exam based on webuntis period type."""
     # The webuntis API period.type returns "ex" for examinations
-    return period.period_type == "ex"
+    if period.period_type == "ex":
+        return True
+    text = " ".join(
+        part for part in (period.subject, period.subst_text, period.ls_text, period.info) if part
+    ).lower()
+    return any(marker in text for marker in ("klausur", "prüfung", "pruefung", "exam"))
 
 
 def _is_ignored_subject(period: UntisPeriod) -> bool:
@@ -291,6 +297,7 @@ class UntisService:
         self._users_file = config.untis_users_file
         self._state_file = config.untis_timetable_state_file
         self._changes_file = config.untis_changes_file
+        self._kurzstunden_file = config.untis_kurzstunden_file
         self._server = config.untis_server
         self._school = config.untis_school
         self._service_account_file = config.data_dir / "yoursbennybot-986b4f0e0d1b.json"
@@ -353,6 +360,31 @@ class UntisService:
     def _save_changes_state(self, state: dict[str, list[dict]]) -> None:
         write_json(self._changes_file, state)
 
+    def _load_kurzstunden_dates(self) -> set[str]:
+        raw = read_json(self._kurzstunden_file, [])
+        if isinstance(raw, dict):
+            raw = raw.get("dates", [])
+        if not isinstance(raw, list):
+            return set()
+        return {str(item) for item in raw if item}
+
+    def _save_kurzstunden_dates(self, dates: set[str]) -> None:
+        write_json(self._kurzstunden_file, sorted(dates))
+
+    def is_kurzstunden(self, target: dt.date) -> bool:
+        return target.isoformat() in self._load_kurzstunden_dates()
+
+    def toggle_kurzstunden(self, target: dt.date) -> bool:
+        dates = self._load_kurzstunden_dates()
+        key = target.isoformat()
+        enabled = key not in dates
+        if enabled:
+            dates.add(key)
+        else:
+            dates.remove(key)
+        self._save_kurzstunden_dates(dates)
+        return enabled
+
     def load_user_timetable(self, user_id: int) -> list[UntisPeriod]:
         state = self._load_state()
         raw = state.get(str(user_id), [])
@@ -385,6 +417,30 @@ class UntisService:
         if self._calendar_client is None:
             self._calendar_client = UntisCalendarClient(self._service_account_file)
         return self._calendar_client
+
+    def sync_calendar_for_date(self, user_id: int, target: dt.date) -> bool:
+        creds = self.get_credentials(user_id)
+        if not creds:
+            return False
+        if user_id == self._config.miron_id:
+            calendar_id = self._config.miron_school_calendar_id
+            mode = "miron"
+        elif user_id == self._config.michi_id:
+            calendar_id = self._config.michi_school_calendar_id
+            mode = "michi"
+        else:
+            return False
+        if not calendar_id or not self._service_account_file.exists():
+            return False
+        try:
+            client = self._make_client(creds)
+            periods = client.fetch_timetable(target, target)
+            calendar_client = self._make_calendar_client()
+            self._sync_calendar_for_user(calendar_client, user_id, calendar_id, mode, periods, target, target)
+            return True
+        except Exception as exc:
+            logger.warning("Untis calendar sync failed for %s: %s", mode, exc)
+            return False
 
     def check_user_for_changes(
         self,
@@ -668,18 +724,54 @@ class UntisService:
 
         try:
             client = self._make_calendar_client()
-            start_dt = dt.datetime.combine(start, dt.time(0, 0, tzinfo=BERLIN_TZ))
-            end_dt = dt.datetime.combine(end, dt.time(23, 59, 59, tzinfo=BERLIN_TZ))
-            existing = client.list_events(calendar_id, start_dt, end_dt)
-
-            if mode == "miron":
-                target = self._build_miron_event_specs(periods, start, end)
-                self._reconcile_miron_calendar(client, calendar_id, target, existing)
-            else:
-                target = self._build_michi_event_specs(periods, start, end)
-                self._reconcile_michi_calendar(client, calendar_id, target, existing, periods)
+            self._sync_calendar_for_user(client, user_id, calendar_id, mode, periods, start, end)
         except Exception as exc:
             logger.warning("Untis calendar sync failed for %s: %s", mode, exc)
+
+    def _sync_calendar_for_user(
+        self,
+        client: UntisCalendarClient,
+        user_id: int,
+        calendar_id: str,
+        mode: str,
+        periods: list[UntisPeriod],
+        start: dt.date,
+        end: dt.date,
+    ) -> None:
+        start_dt = dt.datetime.combine(start, dt.time(0, 0, tzinfo=BERLIN_TZ))
+        end_dt = dt.datetime.combine(end, dt.time(23, 59, 59, tzinfo=BERLIN_TZ))
+        existing = client.list_events(calendar_id, start_dt, end_dt)
+        adjusted_periods = self._apply_kurzstunden_overrides(periods, start, end)
+
+        if mode == "miron":
+            target = self._build_miron_event_specs(adjusted_periods, start, end)
+            self._reconcile_miron_calendar(client, calendar_id, target, existing)
+        else:
+            target = self._build_michi_event_specs(adjusted_periods, start, end)
+            self._reconcile_michi_calendar(client, calendar_id, target, existing, adjusted_periods)
+
+    def _apply_kurzstunden_overrides(
+        self,
+        periods: list[UntisPeriod],
+        start: dt.date,
+        end: dt.date,
+    ) -> list[UntisPeriod]:
+        kurzstunden_dates = self._load_kurzstunden_dates()
+        if not kurzstunden_dates:
+            return periods
+
+        adjusted: list[UntisPeriod] = []
+        period_by_date = _periods_by_date(periods)
+        for day in _date_range(start, end):
+            day_str = day.isoformat()
+            day_periods = period_by_date.get(day_str, [])
+            if day_str in kurzstunden_dates:
+                adjusted.extend(_shorten_kurzstunden_day(day_periods))
+            else:
+                adjusted.extend(day_periods)
+
+        adjusted.sort(key=lambda p: (p.date, p.start_time, p.end_time, p.subject, p.teacher, p.room, p.id))
+        return adjusted
 
     def _build_miron_event_specs(
         self,
@@ -844,6 +936,75 @@ def _school_windows_by_date(periods: list[UntisPeriod]) -> dict[str, tuple[dt.da
 def _date_range(start: dt.date, end: dt.date) -> list[dt.date]:
     days = (end - start).days
     return [start + dt.timedelta(days=offset) for offset in range(days + 1)]
+
+
+def _shorten_kurzstunden_day(periods: list[UntisPeriod]) -> list[UntisPeriod]:
+    visible_periods = sorted(
+        [
+            p for p in periods
+            if p.code != "cancelled" and not _is_ignored_subject(p)
+        ],
+        key=lambda p: (p.start_time, p.end_time, p.subject, p.teacher, p.room, p.id),
+    )
+    if not visible_periods:
+        return []
+
+    adjusted: list[UntisPeriod] = []
+    previous_original_end: int | None = None
+    previous_new_end: int | None = None
+
+    for period in visible_periods:
+        original_start = _time_to_minutes(period.start_time)
+        original_end = _time_to_minutes(period.end_time)
+        if original_start is None or original_end is None:
+            return visible_periods
+
+        if previous_original_end is None:
+            new_start = original_start
+        else:
+            gap = max(0, original_start - previous_original_end)
+            if previous_new_end is None:
+                return visible_periods
+            new_start = previous_new_end + gap
+
+        new_end = new_start + _KURZSTUNDEN_MINUTES
+        adjusted.append(_replace_period_times(period, new_start, new_end))
+        previous_original_end = original_end
+        previous_new_end = new_end
+
+    return adjusted
+
+
+def _replace_period_times(period: UntisPeriod, start_minutes: int, end_minutes: int) -> UntisPeriod:
+    return UntisPeriod(
+        id=period.id,
+        date=period.date,
+        start_time=_minutes_to_time_str(start_minutes),
+        end_time=_minutes_to_time_str(end_minutes),
+        subject=period.subject,
+        teacher=period.teacher,
+        room=period.room,
+        code=period.code,
+        lesson_number=period.lesson_number,
+        subst_text=period.subst_text,
+        ls_text=period.ls_text,
+        info=period.info,
+        lesson_count=period.lesson_count,
+        period_type=period.period_type,
+    )
+
+
+def _time_to_minutes(value: str) -> int | None:
+    try:
+        hours, minutes = value.split(":")
+        return int(hours) * 60 + int(minutes)
+    except Exception:
+        return None
+
+
+def _minutes_to_time_str(value: int) -> str:
+    hours, minutes = divmod(value, 60)
+    return f"{hours:02d}:{minutes:02d}"
 
 
 def _michi_subject(block: list[UntisPeriod]) -> str:

@@ -8,6 +8,8 @@ from telegram.constants import ParseMode
 from telegram.ext import CallbackContext, ConversationHandler, ContextTypes
 
 from perry_assistant.bot.handlers.common import get_services, _require_not_parent, _is_parent
+from perry_assistant.bot.handlers.guards import require_admin
+from perry_assistant.bot.handlers.helpers import parse_date_flexible
 from perry_assistant.domain.models import UntisCredentials
 from perry_assistant.services.untis_service import format_change_notification
 
@@ -156,6 +158,39 @@ async def untis_disconnect(update: Update, context: CallbackContext) -> None:
         await update.message.reply_text("Du hattest keine Untis-Verbindung.")
 
 
+@require_admin
+async def kurzstunden(update: Update, context: CallbackContext) -> None:
+    """Toggle Kurzstunden for a given date and resync both school calendars."""
+    if not update.message:
+        return
+
+    date = _parse_date_arg(context.args or [])
+    if date is None:
+        await update.message.reply_text(
+            "Usage: /kurzstunden DD.MM.YYYY, DD/MM/YYYY or YYYY-MM-DD"
+        )
+        return
+
+    services = get_services(context)
+    enabled = services.untis_service.toggle_kurzstunden(date)
+
+    synced: list[str] = []
+    if services.untis_service.sync_calendar_for_date(services.config.miron_id, date):
+        synced.append("Miron")
+    if services.untis_service.sync_calendar_for_date(services.config.michi_id, date):
+        synced.append("Michi")
+
+    state_text = "aktiviert" if enabled else "deaktiviert"
+    if synced:
+        await update.message.reply_text(
+            f"✅ Kurzstunden für {date.strftime('%d.%m.%Y')} {state_text}. Kalender aktualisiert: {', '.join(synced)}."
+        )
+    else:
+        await update.message.reply_text(
+            f"✅ Kurzstunden für {date.strftime('%d.%m.%Y')} {state_text}. Ich konnte keine Kalender aktualisieren."
+        )
+
+
 async def untis_setup_callback(update: Update, context: CallbackContext) -> int:
     """Handle inline button 'untis_setup' – enters the ConversationHandler."""
     query = update.callback_query
@@ -258,6 +293,15 @@ async def _reply_with_chunks(message, text: str, parse_mode: str) -> None:
 async def _send_with_chunks(bot, chat_id: int, text: str, parse_mode: str) -> None:
     for chunk in _split_message(text):
         await bot.send_message(chat_id=chat_id, text=chunk, parse_mode=parse_mode)
+
+
+def _parse_date_arg(args: list[str]) -> dt.date | None:
+    if not args:
+        return None
+    return parse_date_flexible(
+        " ".join(args),
+        formats=("%d.%m.%Y", "%d/%m/%Y", "%Y-%m-%d"),
+    )
 
 
 def _summarize_changes(changes) -> str:

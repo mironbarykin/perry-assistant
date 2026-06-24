@@ -9,6 +9,7 @@ from telegram.ext import ConversationHandler
 from perry_assistant.bot.handlers.untis_timetable import (
     UNTIS_ASK_PASSWORD,
     UNTIS_ASK_USERNAME,
+    kurzstunden,
     untis_setup,
     untis_setup_callback,
     untis_setup_username,
@@ -135,3 +136,37 @@ def test_untis_setup_username_stores_name_and_returns_password_state():
     assert user_data["untis_username"] == "max.mueller"
     assert len(message.replies) == 1
     assert "Passwort" in message.replies[0]
+
+
+def test_kurzstunden_toggles_and_syncs_calendars():
+    class _UntisService:
+        def __init__(self) -> None:
+            self.toggled: list[str] = []
+            self.synced: list[int] = []
+
+        def toggle_kurzstunden(self, date):
+            self.toggled.append(date.isoformat())
+            return True
+
+        def sync_calendar_for_date(self, user_id, date):
+            self.synced.append(user_id)
+            return True
+
+    services = SimpleNamespace(
+        config=SimpleNamespace(miron_id=123456, michi_id=789012),
+        untis_service=_UntisService(),
+    )
+    context = SimpleNamespace(
+        application=SimpleNamespace(bot_data={"services": services}),
+        args=["2026-06-24"],
+        user_data={},
+    )
+    message = _FakeMessage()
+    update = SimpleNamespace(message=message, effective_user=SimpleNamespace(id=123456))
+
+    result = asyncio.run(kurzstunden(update, context))
+
+    assert result is None
+    assert services.untis_service.toggled == ["2026-06-24"]
+    assert services.untis_service.synced == [123456, 789012]
+    assert any("Kurzstunden" in reply for reply in message.replies)

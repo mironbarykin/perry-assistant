@@ -47,14 +47,17 @@ def _period_to_model(period, subject_map: dict[int, str], room_map: dict[int, st
 
     raw_code = None
     try:
-        raw_code = period.code()
+        code_attr = getattr(period, "code", None)
+        raw_code = code_attr() if callable(code_attr) else code_attr
+        if raw_code is None:
+            raw_code = _get_raw_value(period, "code")
     except Exception:
         raw_code = None
 
     subst_text = _get_subst_text(period)
     ls_text_val = _get_ls_text(period)
     info_val = _get_info(period)
-    code = _derive_status_code(raw_code, subst_text)
+    code = _derive_status_code(raw_code, subst_text, ls_text_val, info_val)
 
     # Extract period type (ex for exam, ls for lesson, etc.)
     period_type = None
@@ -162,20 +165,27 @@ def _get_info(period) -> str:
     return str(raw) if raw else ""
 
 
-def _derive_status_code(raw_code: str | None, subst_text: str) -> str | None:
+def _derive_status_code(raw_code: str | None, subst_text: str, ls_text: str = "", info: str = "") -> str | None:
+    combined_text = " ".join(part for part in (subst_text, ls_text, info) if part).lower()
     subst_lower = subst_text.lower() if subst_text else ""
+    if raw_code:
+        code = str(raw_code).lower()
+        if code == "cancelled" or code == "canceled":
+            return "cancelled"
+        if code == "irregular":
+            return "irregular"
+
+    if any(
+        marker in combined_text
+        for marker in ("fällt aus", "entfällt", "ausfall", "cancelled", "canceled")
+    ):
+        return "cancelled"
+
     if subst_lower:
         # Only treat as cancelled when substitution text says EVA and not a block lesson.
         if "eigenverantwortliches arbeiten" in subst_lower and "block" not in subst_lower:
             return "cancelled"
         return "irregular"
-
-    if raw_code:
-        code = str(raw_code).lower()
-        if code == "irregular":
-            return "irregular"
-        if code == "cancelled":
-            return "cancelled"
 
     return None
 

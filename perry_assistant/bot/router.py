@@ -58,6 +58,7 @@ def build_application(services: AppServices) -> Application:
     app.add_handler(CommandHandler("parents", admin.parents))
     app.add_handler(CommandHandler("untis_status", untis_timetable.untis_status))
     app.add_handler(CommandHandler("untis_disconnect", untis_timetable.untis_disconnect))
+    app.add_handler(CommandHandler("kurzstunden", untis_timetable.kurzstunden))
     app.add_handler(CommandHandler("shower", trackers.shower))
     app.add_handler(CommandHandler("fap", trackers.fap))
     app.add_handler(CommandHandler("cancel", trackers.cancel_tracker))

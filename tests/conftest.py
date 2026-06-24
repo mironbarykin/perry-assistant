@@ -44,6 +44,7 @@ def app_config(tmp_path: Path) -> AppConfig:
         untis_users_file=data_dir / "untis_users.json",
         untis_timetable_state_file=data_dir / "untis_timetable_state.json",
         untis_changes_file=data_dir / "untis_changes_state.json",
+        untis_kurzstunden_file=data_dir / "untis_kurzstunden.json",
         untis_server="thalia.webuntis.com",
         untis_school="test-school",
         miron_school_calendar_id="test-miron-calendar-id",

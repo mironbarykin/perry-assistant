@@ -11,6 +11,7 @@ from perry_assistant.services.untis_service import (
     detect_changes,
     format_change_notification,
     _merge_doubled_lessons,
+    _shorten_kurzstunden_day,
     _time_gap_minutes,
 )
 
@@ -265,6 +266,33 @@ class TestUntisServiceTimetableState:
         app_config.data_dir.mkdir(parents=True, exist_ok=True)
         svc = UntisService(app_config)
         assert svc.load_user_timetable(999) == []
+
+
+class TestUntisServiceKurzstunden:
+    def test_toggle_kurzstunden_persists_state(self, app_config):
+        app_config.data_dir.mkdir(parents=True, exist_ok=True)
+        svc = UntisService(app_config)
+        target = dt.date(2026, 6, 24)
+
+        assert svc.is_kurzstunden(target) is False
+        assert svc.toggle_kurzstunden(target) is True
+        assert svc.is_kurzstunden(target) is True
+        assert svc.toggle_kurzstunden(target) is False
+        assert svc.is_kurzstunden(target) is False
+
+    def test_shorten_kurzstunden_day_preserves_breaks(self):
+        periods = [
+            _period(date="2026-06-24", start="08:00", end="08:45", subject="M", pid=1),
+            _period(date="2026-06-24", start="08:55", end="09:40", subject="D", pid=2),
+            _period(date="2026-06-24", start="09:50", end="10:35", subject="E", pid=3),
+        ]
+
+        adjusted = _shorten_kurzstunden_day(periods)
+
+        assert [p.start_time for p in adjusted] == ["08:00", "08:40", "09:20"]
+        assert [p.end_time for p in adjusted] == ["08:30", "09:10", "09:50"]
+        assert _time_gap_minutes(adjusted[0].end_time, adjusted[1].start_time) == 10
+        assert _time_gap_minutes(adjusted[1].end_time, adjusted[2].start_time) == 10
 
 
 # ---------------------------------------------------------------------------
