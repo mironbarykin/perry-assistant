@@ -280,19 +280,20 @@ class TestUntisServiceKurzstunden:
         assert svc.toggle_kurzstunden(target) is False
         assert svc.is_kurzstunden(target) is False
 
-    def test_shorten_kurzstunden_day_preserves_breaks(self):
+    def test_shorten_kurzstunden_day(self):
         periods = [
-            _period(date="2026-06-24", start="08:00", end="08:45", subject="M", pid=1),
-            _period(date="2026-06-24", start="08:55", end="09:40", subject="D", pid=2),
-            _period(date="2026-06-24", start="09:50", end="10:35", subject="E", pid=3),
+            _period(date="2026-06-24", start="07:55", end="08:40", subject="M", pid=1),
+            _period(date="2026-06-24", start="08:45", end="09:30", subject="D", pid=2),
+            _period(date="2026-06-24", start="09:45", end="10:30", subject="E", pid=3),
+            _period(date="2026-06-24", start="10:35", end="11:20", subject="E", pid=4),
         ]
 
         adjusted = _shorten_kurzstunden_day(periods)
 
-        assert [p.start_time for p in adjusted] == ["08:00", "08:40", "09:20"]
-        assert [p.end_time for p in adjusted] == ["08:30", "09:10", "09:50"]
-        assert _time_gap_minutes(adjusted[0].end_time, adjusted[1].start_time) == 10
-        assert _time_gap_minutes(adjusted[1].end_time, adjusted[2].start_time) == 10
+        assert [p.start_time for p in adjusted] == ["07:55", "08:30", "09:15", "09:50"]
+        assert [p.end_time for p in adjusted] == ["08:25", "09:00", "09:45", "10:20"]
+        assert _time_gap_minutes(adjusted[0].end_time, adjusted[1].start_time) == 5
+        assert _time_gap_minutes(adjusted[1].end_time, adjusted[2].start_time) == 15
 
 
 # ---------------------------------------------------------------------------

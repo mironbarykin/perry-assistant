@@ -21,8 +21,9 @@ _SCHOOL_GAP_MINUTES = 60
 _DOUBLE_LESSON_GAP_MINUTES = 10
 _KURZSTUNDEN_MINUTES = 30
 _SCHOOL_SUMMARY = "🏫 School"
-_IGNORED_SUBJECTS = {"R", 'Nach'}
-
+_IGNORED_SUBJECTS = {"R", 'Nach', 'mdl'}
+_KURZSTUNDEN_BEGINN = ['07:55', '08:30', '09:15', '09:50', '10:35', '11:10', '11:50', '12:25']
+_NORMALSTUNDEN_BEGINN = ['07:55', '08:45', '09:45', '10:35', '11:35', '12:25', '13:20', '14:05']
 
 def _period_key(period: UntisPeriod) -> str:
     return f"{period.date}_{period.start_time}_{period.subject}"
@@ -384,7 +385,7 @@ class UntisService:
             dates.remove(key)
         self._save_kurzstunden_dates(dates)
         return enabled
-
+    
     def load_user_timetable(self, user_id: int) -> list[UntisPeriod]:
         state = self._load_state()
         raw = state.get(str(user_id), [])
@@ -766,7 +767,8 @@ class UntisService:
             day_str = day.isoformat()
             day_periods = period_by_date.get(day_str, [])
             if day_str in kurzstunden_dates:
-                adjusted.extend(_shorten_kurzstunden_day(day_periods))
+                sorted_day_periods = sorted(day_periods, key=lambda p: (p.start_time, p.end_time, p.id))
+                adjusted.extend(_shorten_kurzstunden_day(sorted_day_periods))
             else:
                 adjusted.extend(day_periods)
 
@@ -831,7 +833,7 @@ class UntisService:
         existing_map = _build_existing_event_map(existing)
         target_map = {item["key"]: item for item in target}
         target_subjects = _subjects_by_date(periods)
-        windows = _school_windows_by_date(periods)
+        windows = _school_windows_by_date(self, periods)
 
         for key, item in target_map.items():
             if key in existing_map:
@@ -918,9 +920,14 @@ def _subjects_by_date(periods: list[UntisPeriod]) -> dict[str, set[str]]:
     return result
 
 
-def _school_windows_by_date(periods: list[UntisPeriod]) -> dict[str, tuple[dt.datetime, dt.datetime]]:
+def _school_windows_by_date(service: UntisService, periods: list[UntisPeriod]) -> dict[str, tuple[dt.datetime, dt.datetime]]:
     windows: dict[str, tuple[dt.datetime, dt.datetime]] = {}
     grouped: dict[str, list[UntisPeriod]] = {}
+ 
+    if periods and service.is_kurzstunden(dt.date.fromisoformat(periods[0].date)):
+        sorted_periods = sorted(periods, key=lambda p: (p.date, p.start_time, p.end_time, p.id))
+        periods = _shorten_kurzstunden_day(sorted_periods)
+
     for p in periods:
         if p.code == "cancelled" or _is_ignored_subject(p):
             continue
@@ -939,38 +946,24 @@ def _date_range(start: dt.date, end: dt.date) -> list[dt.date]:
 
 
 def _shorten_kurzstunden_day(periods: list[UntisPeriod]) -> list[UntisPeriod]:
-    visible_periods = sorted(
-        [
-            p for p in periods
-            if p.code != "cancelled" and not _is_ignored_subject(p)
-        ],
-        key=lambda p: (p.start_time, p.end_time, p.subject, p.teacher, p.room, p.id),
-    )
-    if not visible_periods:
-        return []
-
+    """Function shortening the periods of a day to 30 minutes each for Kurzstunden, keeping break times."""
     adjusted: list[UntisPeriod] = []
-    previous_original_end: int | None = None
-    previous_new_end: int | None = None
 
-    for period in visible_periods:
-        original_start = _time_to_minutes(period.start_time)
-        original_end = _time_to_minutes(period.end_time)
-        if original_start is None or original_end is None:
-            return visible_periods
+    for period in periods:
+        if period.code == "cancelled" and not _is_ignored_subject(period):
+            continue
 
-        if previous_original_end is None:
-            new_start = original_start
-        else:
-            gap = max(0, original_start - previous_original_end)
-            if previous_new_end is None:
-                return visible_periods
-            new_start = previous_new_end + gap
+        try:
+            lesson_index = _NORMALSTUNDEN_BEGINN.index(period.start_time)
+        except ValueError:
+            return periods
 
-        new_end = new_start + _KURZSTUNDEN_MINUTES
-        adjusted.append(_replace_period_times(period, new_start, new_end))
-        previous_original_end = original_end
-        previous_new_end = new_end
+        start = _time_to_minutes(_KURZSTUNDEN_BEGINN[lesson_index])
+        if start is None:
+            return periods
+        end = start + 30
+
+        adjusted.append(_replace_period_times(period, start, end))
 
     return adjusted
 
