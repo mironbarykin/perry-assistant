@@ -830,36 +830,59 @@ class UntisService:
         existing: list[dict[str, Any]],
         periods: list[UntisPeriod],
     ) -> None:
+        """
+        Reconciles the target school schedule with the existing Google Calendar events for Michi.
+        
+        It identifies which events need to be created, updated, or deleted.
+        To avoid deleting personal events on the same calendar, it carefully filters
+        which existing events are considered "managed" school events.
+        """
         existing_map = _build_existing_event_map(existing)
         target_map = {item["key"]: item for item in target}
-        target_subjects = _subjects_by_date(periods)
-        windows = _school_windows_by_date(self, periods)
+        
+        # We need a robust list of all possible school subjects to safely identify school events.
+        # We dynamically collect them from the periods fetched, and add common fallbacks.
+        valid_subjects = set()
+        for p in periods:
+            valid_subjects.add(_michi_subject([p]))
 
+        # 1. Create or update target events
         for key, item in target_map.items():
             if key in existing_map:
                 existing_event = existing_map[key]
+                # Update if description (details/teachers) changed
                 if existing_event.get("description", "") != item.get("description", ""):
                     client.update_event(calendar_id, existing_event["id"], {"description": item["description"]})
             else:
+                # Create if it doesn't exist
                 payload = build_event_payload(item["summary"], item["description"], item["start_dt"], item["end_dt"])
                 client.create_event(calendar_id, payload)
 
+        # 2. Delete outdated existing events (e.g., cancelled classes or classes moved by Kurzstunden)
         for key, existing_event in existing_map.items():
             if key in target_map:
-                continue
+                continue  # Keep events that are part of the target schedule
+                
             summary = existing_event.get("summary", "")
             start_dt = existing_event.get("start_dt")
             end_dt = existing_event.get("end_dt")
             if not summary or not start_dt or not end_dt:
                 continue
-            date_str = start_dt.astimezone(BERLIN_TZ).date().isoformat()
-            window = windows.get(date_str)
-            if not window:
+
+            # Check if the event looks like a school event managed by the bot:
+            # - Condition A: The summary must be a known school subject.
+            #   (Previously, this used raw Untis codes which failed to match Google Calendar summaries).
+            if summary not in valid_subjects:
                 continue
-            if summary not in target_subjects.get(date_str, set()):
+                
+            # - Condition B: It falls within typical school hours (7:00 to 17:00).
+            #   (Previously, this used strict daily windows which shrank during Kurzstunden or cancellations,
+            #    preventing the deletion of the old, longer events).
+            start_time = start_dt.astimezone(BERLIN_TZ).time()
+            if not (dt.time(7, 0) <= start_time <= dt.time(17, 0)):
                 continue
-            if start_dt < window[0] or end_dt > window[1]:
-                continue
+
+            # If it's a school event but no longer in the target schedule, delete it!
             client.delete_event(calendar_id, existing_event["id"])
 
 
