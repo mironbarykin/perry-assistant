@@ -47,11 +47,6 @@ class RefereeAssignment:
     travel_info: TravelResult | None = None
 
 
-@dataclass(slots=True)
-class AbsenceRecord:
-    date: str
-    subject: str
-    excused: bool = False
 
 
 @dataclass(slots=True)

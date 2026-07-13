@@ -62,10 +62,8 @@ def build_application(services: AppServices) -> Application:
     app.add_handler(CommandHandler("shower", trackers.shower))
     app.add_handler(CommandHandler("fap", trackers.fap))
     app.add_handler(CommandHandler("cancel", trackers.cancel_tracker))
-    app.add_handler(CommandHandler("absence", absences.absence))
-    app.add_handler(CommandHandler("absences", absences.absences_all))
-    app.add_handler(CommandHandler("excused", absences.absences_excused))
-    app.add_handler(CommandHandler("excuse", absences.excuse))
+    app.add_handler(CommandHandler("absences", absences.record_absences))
+
 
     published_conv = ConversationHandler(
         entry_points=[CommandHandler("published", admin.published_start)],

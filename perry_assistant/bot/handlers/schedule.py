@@ -146,8 +146,7 @@ async def other_date_input(update: Update, context: CallbackContext) -> int:
     known_buttons = {
         "TODAY", "TOMORROW", "THIS WEEKEND", "OTHER DATE", "BACK",
         "SCHEDULE", "UNTIS", "ABSENCES", "REFEREE", "EMAILS", "UPORTAL",
-        "NEXT WEEKEND", "EXCUSABLE TODAY", "ALL ABSENCES",
-        "EXCUSED ABSENCES", "I AM ABSENT",
+        "NEXT WEEKEND", 
     }
     if raw_text.upper() in known_buttons:
         await button_handler(update, context)

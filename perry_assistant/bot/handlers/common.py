@@ -79,7 +79,7 @@ async def start(update: Update, context: CallbackContext) -> None:
     if admin or parent:
         command_text = "Commands: /today /tomorrow /weekend"
         if admin:
-            command_text += " /absence /absences /excused /excuse /published /setweatherloc /weatherloc /games"
+            command_text += " /published /setweatherloc /weatherloc /games"
         keyboard = build_main_keyboard(is_admin=admin, is_parent=parent)
         await update.message.reply_text(
             (
@@ -169,9 +169,6 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
     # Admin-only buttons
     if text in {
         "ABSENCES",
-        "EXCUSABLE TODAY",
-        "ALL ABSENCES",
-        "EXCUSED ABSENCES",
         "I AM ABSENT",
         "REFEREE",
         "EMAILS",
@@ -203,34 +200,8 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
             return
 
     if text == "ABSENCES":
-        from perry_assistant.bot.handlers.absences import absences_menu
-
-        await absences_menu(update, context)
-        return
-
-    if text == "EXCUSABLE TODAY":
-        from perry_assistant.bot.handlers.absences import absences_today
-
-        await absences_today(update, context)
-        return
-
-    if text == "ALL ABSENCES":
-        from perry_assistant.bot.handlers.absences import absences_all
-
-        await absences_all(update, context)
-        return
-
-    if text == "EXCUSED ABSENCES":
-        from perry_assistant.bot.handlers.absences import absences_excused
-
-        await absences_excused(update, context)
-        return
-
-    if text == "I AM ABSENT":
-        from perry_assistant.bot.handlers.absences import absences_absent
-
-        await absences_absent(update, context)
-        return
+        pass
+        # TODO: wait for a file with locations to be sent to the bot
 
     if text == "SCHEDULE":
         await update.message.reply_text("OK", reply_markup=build_schedule_keyboard())

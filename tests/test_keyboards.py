@@ -1,5 +1,4 @@
 from perry_assistant.bot.keyboards import (
-    build_absences_menu_keyboard,
     build_main_keyboard,
     build_referee_menu_keyboard,
     build_schedule_keyboard,
@@ -35,5 +34,4 @@ def test_referee_menu_contains_expected_buttons():
 
 def test_other_keyboards_still_build():
     assert build_schedule_keyboard().keyboard
-    assert build_absences_menu_keyboard().keyboard
 

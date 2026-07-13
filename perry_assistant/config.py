@@ -25,8 +25,6 @@ class AppConfig:
     referee_events_file: Path
     gyms_cache_file: Path
     address_cache_file: Path
-    school_absence_file: Path
-    school_timetable_file: Path
     weather_location_file: Path
     game_message_rules_file: Path
     game_message_state_file: Path
@@ -90,8 +88,6 @@ def load_config() -> AppConfig:
         referee_events_file=data_dir / "referee_events.json",
         gyms_cache_file=data_dir / "gyms_cache.json",
         address_cache_file=data_dir / "address_cache.json",
-        school_absence_file=data_dir / "school_absences.json",
-        school_timetable_file=data_dir / "school_timetable.json",
         weather_location_file=data_dir / "weather_location.json",
         game_message_rules_file=data_dir / "game_message_rules.json",
         game_message_state_file=data_dir / "game_message_state.json",
