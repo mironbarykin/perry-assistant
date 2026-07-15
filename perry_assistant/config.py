@@ -32,6 +32,7 @@ class AppConfig:
     uportal_window_state_file: Path
     uportal_ignored_rows_file: Path
     uportal_game_catalog_file: Path
+    absences_file: Path
     basketball_senders: tuple[str, ...]
     home_coords: dict[str, float]
     school_coords: dict[str, float]
@@ -95,6 +96,7 @@ def load_config() -> AppConfig:
         uportal_window_state_file=data_dir / "uportal_window_state.json",
         uportal_ignored_rows_file=data_dir / "uportal_ignored_rows.json",
         uportal_game_catalog_file=data_dir / "uportal_game_catalog.json",
+        absences_file=data_dir / "absences.json",
         basketball_senders=(
             "*@uportal-wbv.de",
             "noreply@basketball-bund.net",

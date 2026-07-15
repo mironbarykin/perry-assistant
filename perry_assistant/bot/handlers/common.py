@@ -199,10 +199,6 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
         if not await _require_not_parent(update, context):
             return
 
-    if text == "ABSENCES":
-        pass
-        # TODO: wait for a file with locations to be sent to the bot
-
     if text == "SCHEDULE":
         await update.message.reply_text("OK", reply_markup=build_schedule_keyboard())
         return

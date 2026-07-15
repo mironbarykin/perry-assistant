@@ -31,6 +31,7 @@ def app_config(tmp_path: Path) -> AppConfig:
         uportal_window_state_file=data_dir / "uportal_window_state.json",
         uportal_ignored_rows_file=data_dir / "uportal_ignored_rows.json",
         uportal_game_catalog_file=data_dir / "uportal_game_catalog.json",
+        absences_file=data_dir / "absences.json",
         basketball_senders=("sender@example.com",),
         home_coords={"lat": 1.0, "lon": 2.0},
         school_coords={"lat": 3.0, "lon": 4.0},
